@@ -1,0 +1,6 @@
+# Full CLAP mode.
+# Do NOT install with plain `pip install -r` alone: install CPU torch FIRST
+# (see install-ml.bat / install-ml.sh), otherwise pip pulls the ~2.5 GB
+# CUDA torch build. GPU users: just `pip install torch torchvision laion-clap`.
+torchvision  # noqa - must match torch build (CPU/CUDA); installed in step 1
+laion-clap

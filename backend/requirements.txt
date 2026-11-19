@@ -1,0 +1,14 @@
+# ==== Base (demo-mode works WITHOUT heavy ML deps) ====
+fastapi>=0.110
+uvicorn[standard]>=0.29
+numpy>=1.26
+scipy>=1.12
+librosa>=0.10
+soundfile>=0.12
+python-multipart>=0.0.9   # file uploads (search-by-audio)
+
+# ==== Full semantic mode (optional, needs ~2-4 GB download + RAM/GPU) ====
+# Uncomment / install separately:
+# torch --index-url https://download.pytorch.org/whl/cpu
+# laion-clap>=1.1.4
+# chromadb>=0.5
