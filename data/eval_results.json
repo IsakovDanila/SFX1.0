@@ -1,0 +1,323 @@
+{
+  "mode": "heuristic-demo",
+  "n_queries": 24,
+  "n_files": 40,
+  "recall@5": 1.0,
+  "recall@10": 1.0,
+  "avg_ms": 0.7,
+  "gate_recall@10>=0.5": true,
+  "details": [
+    {
+      "query": "footstep on wooden floor",
+      "expected": "footstep_wood",
+      "top5": [
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "boots walking, steps on wood",
+      "expected": "footstep_wood",
+      "top5": [
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "dull thump of a step",
+      "expected": "footstep_wood",
+      "top5": [
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "cinematic explosion",
+      "expected": "explosion_cinematic",
+      "top5": [
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "epic blast boom",
+      "expected": "explosion_cinematic",
+      "top5": [
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "soft interface click",
+      "expected": "interface_click",
+      "top5": [
+        "interface_click",
+        "interface_click",
+        "interface_click",
+        "interface_click",
+        "interface_click"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "ui button press blip",
+      "expected": "interface_click",
+      "top5": [
+        "interface_click",
+        "interface_click",
+        "interface_click",
+        "interface_click",
+        "interface_click"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "metallic hit",
+      "expected": "metal_hit",
+      "top5": [
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "clang of steel impact",
+      "expected": "metal_hit",
+      "top5": [
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "hammer hits metal",
+      "expected": "metal_hit",
+      "top5": [
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "glass shattering",
+      "expected": "glass_break",
+      "top5": [
+        "glass_break",
+        "glass_break",
+        "glass_break",
+        "glass_break",
+        "glass_break"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "window smash crash",
+      "expected": "glass_break",
+      "top5": [
+        "glass_break",
+        "glass_break",
+        "glass_break",
+        "glass_break",
+        "glass_break"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "cinematic whoosh",
+      "expected": "whoosh",
+      "top5": [
+        "whoosh",
+        "whoosh",
+        "whoosh",
+        "whoosh",
+        "whoosh"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "sweep transition flyby",
+      "expected": "whoosh",
+      "top5": [
+        "whoosh",
+        "whoosh",
+        "whoosh",
+        "whoosh",
+        "whoosh"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "wind pass whoosh",
+      "expected": "whoosh",
+      "top5": [
+        "whoosh",
+        "whoosh",
+        "whoosh",
+        "whoosh",
+        "whoosh"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "thunder rumble",
+      "expected": "thunder",
+      "top5": [
+        "thunder",
+        "thunder",
+        "thunder",
+        "thunder",
+        "thunder"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "storm lightning strike",
+      "expected": "thunder",
+      "top5": [
+        "thunder",
+        "thunder",
+        "thunder",
+        "thunder",
+        "thunder"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "gunshot",
+      "expected": "gunshot",
+      "top5": [
+        "gunshot",
+        "gunshot",
+        "gunshot",
+        "gunshot",
+        "gunshot"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "pistol firing",
+      "expected": "gunshot",
+      "top5": [
+        "gunshot",
+        "gunshot",
+        "gunshot",
+        "gunshot",
+        "gunshot"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "rifle shot",
+      "expected": "gunshot",
+      "top5": [
+        "gunshot",
+        "gunshot",
+        "gunshot",
+        "gunshot",
+        "gunshot"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "гулкий шаг по дереву",
+      "expected": "footstep_wood",
+      "top5": [
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood",
+        "footstep_wood"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "кинематографичный взрыв",
+      "expected": "explosion_cinematic",
+      "top5": [
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic",
+        "explosion_cinematic"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "мягкий клик интерфейса",
+      "expected": "interface_click",
+      "top5": [
+        "interface_click",
+        "interface_click",
+        "interface_click",
+        "interface_click",
+        "interface_click"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "тяжёлый металлический удар",
+      "expected": "metal_hit",
+      "top5": [
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit",
+        "metal_hit"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    }
+  ]
+}
