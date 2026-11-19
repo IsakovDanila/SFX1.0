@@ -18,15 +18,20 @@ from app import embeddings as E  # noqa: E402
 
 BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA = os.path.join(BASE, "data", "demo_sfx")
-QUERIES = os.path.join(os.path.dirname(__file__), "demo_queries.json")
+# Основной набор — русские запросы (интерфейс и звукорежиссёры говорят
+# по-русски). Старый EN-набор оставлен для сравнения и CLAP-режима.
+QUERIES = os.path.join(os.path.dirname(__file__), "demo_queries_ru.json")
+QUERIES_EN = os.path.join(os.path.dirname(__file__), "demo_queries.json")
 
 
-def run(store: JsonStore | None = None, top_k: int = 10) -> dict:
+def run(store: JsonStore | None = None, top_k: int = 10,
+        queries_path: str | None = None) -> dict:
     store = store or JsonStore(embedder=E.get_embedder())
     if not store.items:
         print("[eval] index empty, scanning demo dataset...")
         store.scan_folder(DATA)
-    with open(QUERIES, encoding="utf-8") as f:
+    qpath = queries_path or os.getenv("SFX_QUERIES") or QUERIES
+    with open(qpath, encoding="utf-8") as f:
         queries = json.load(f)
 
     r5_hits = r10_hits = 0
@@ -46,6 +51,7 @@ def run(store: JsonStore | None = None, top_k: int = 10) -> dict:
     n = len(queries)
     summary = {
         "mode": store.embedder.name,
+        "queries_file": os.path.basename(qpath),
         "n_queries": n, "n_files": len(store.items),
         "recall@5": round(r5_hits / n, 3),
         "recall@10": round(r10_hits / n, 3),
@@ -62,6 +68,7 @@ def run(store: JsonStore | None = None, top_k: int = 10) -> dict:
 if __name__ == "__main__":
     s = run()
     print(f"\nmode      : {s['mode']}")
+    print(f"queries   : {s['queries_file']}")
     print(f"files     : {s['n_files']}, queries: {s['n_queries']}")
     print(f"Recall@5  : {s['recall@5']}")
     print(f"Recall@10 : {s['recall@10']}  "

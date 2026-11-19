@@ -23,6 +23,8 @@ import re
 
 import numpy as np
 
+from . import labels_ru
+
 # Synonym map per demo category: EN (team decision) + RU (UI language).
 # 'cinematic' belongs to both explosion and whoosh: exact-token count
 # still disambiguates ("cinematic explosion" vs "cinematic whoosh").
@@ -58,6 +60,14 @@ SYNONYMS: dict[str, list[str]] = {
                 "выстрел", "пистолет", "винтовка", "оружие", "стрельба",
                 "огонь", "ружьё", "ружье"],
 }
+
+# Русские метки для всех остальных категорий (ESC-50 и чужие библиотеки).
+# Ключи не пересекаются с SYNONYMS выше, поэтому обновление безопасно.
+for _key, _entry in labels_ru.RU_LABELS.items():
+    SYNONYMS.setdefault(_key, [])
+    for _w in _entry["tags"]:
+        if _w not in SYNONYMS[_key]:
+            SYNONYMS[_key].append(_w)
 
 TOKEN_RE = re.compile(r"[a-zа-яё']+")
 
@@ -127,10 +137,29 @@ def _match(t: str, h: str) -> bool:
     return False
 
 
+def expand_query(query_tokens: list[str]) -> set[str]:
+    """Перевод запроса в ключи категорий: «разбилось стекло» -> {glass_breaking}.
+
+    Работает без tags.csv: даже если в индексе только английские имена файлов,
+    русский запрос находит нужный класс.
+    """
+    keys: set[str] = set()
+    for tok in query_tokens:
+        keys |= labels_ru.keys_for_token_prefix(tok)
+        # EN-слово запроса -> RU -> ключи
+        for ru in EN_RU.get(_stem(tok), ()):
+            keys |= labels_ru.keys_for_token_prefix(ru)
+    return keys
+
+
 def keyword_score(query_tokens: list[str], item: dict) -> float:
     """Lexical match of query against category synonyms + tags + filename."""
     hay: set[str] = set()
-    for w in SYNONYMS.get(item.get("category", ""), []):
+    cat_key = labels_ru.normalize_key(item.get("category", ""))
+    for w in SYNONYMS.get(cat_key, []):
+        hay.add(_stem(w))
+    # русское название категории тоже считается попаданием
+    for w in tokenize(labels_ru.ru_name(item.get("category", ""))):
         hay.add(_stem(w))
     for t in tokenize(" ".join(item.get("tags", []))):
         hay.add(_stem(t))
@@ -148,7 +177,12 @@ def keyword_score(query_tokens: list[str], item: dict) -> float:
         return 0.0
     stems = [_stem(t) for t in query_tokens]
     hits = sum(1 for t in stems if any(_match(t, h) for h in hay))
-    return hits / len(query_tokens)
+    score = hits / len(query_tokens)
+    # стадия «перевод запроса в категорию»: если класс угадан (в т.ч. по
+    # английскому имени файла при отсутствии tags.csv) — это сильный сигнал
+    if cat_key in expand_query(query_tokens):
+        score = max(score, 0.75)
+    return score
 
 
 def mfcc_vector(features: dict) -> np.ndarray:
@@ -177,35 +211,79 @@ class HeuristicEmbedder:
 
 
 class CLAPEmbedder:
-    """Real semantic embeddings via laion-clap (optional heavy dep)."""
+    """Real semantic embeddings via laion-clap (optional heavy dep).
+
+    Параметры позволяют ставить модель офлайн и на слабых машинах:
+      ckpt     — путь к локальному .pt (иначе пакет скачает ~1.9 ГБ сам),
+      device   — "cpu" | "cuda:0" (по умолчанию автоопределение),
+      model_id — 0: 630k-best, 1: 630k-audioset-best.
+
+    Загрузка тяжёлая, поэтому обычный путь — через clap_runtime.RUNTIME,
+    который грузит модель в фоне и не подвешивает HTTP-сервер.
+    """
     name = "laion-clap"
     dim = 512
 
-    def __init__(self) -> None:
+    def __init__(self, ckpt: str | None = None, device: str | None = None,
+                 model_id: int = 1) -> None:
+        import torch
         from laion_clap import CLAP_Module  # lazy: only in full mode
-        self.model = CLAP_Module(enable_fusion=False)
-        self.model.load_ckpt()  # default 630k-audioset checkpoint
+
+        self.device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.ckpt = ckpt or ""
+        self.model = CLAP_Module(enable_fusion=False, device=self.device)
+        if ckpt:
+            self.model.load_ckpt(ckpt=ckpt, verbose=False)
+        else:
+            self.model.load_ckpt(model_id=model_id)
+        self.model.eval()
+
+    def _norm(self, arr) -> np.ndarray:
+        v = np.array(arr, dtype=float).ravel()
+        return v / (np.linalg.norm(v) + 1e-12)
 
     def audio_vector_file(self, path: str) -> np.ndarray:
         emb = self.model.get_audio_embedding_from_filelist([path], use_tensor=False)
-        v = np.array(emb[0], dtype=float)
-        return v / (np.linalg.norm(v) + 1e-12)
+        return self._norm(emb[0])
 
     def text_vector(self, query: str) -> np.ndarray:
         emb = self.model.get_text_embedding([query], use_tensor=False)
-        v = np.array(emb[0], dtype=float)
-        return v / (np.linalg.norm(v) + 1e-12)
+        return self._norm(emb[0])
+
+    # --- калибровка уверенности ---------------------------------------
+    # CLAP отдаёт косинус в узком диапазоне (релевантное ~0.3-0.6), поэтому
+    # «процент совпадения» из презентации нельзя брать как cos*100: всё
+    # выглядело бы на 30-50%. Переводим в вероятность логистической кривой.
+    # SFX_CLAP_CALIB=lo,hi позволяет подогнать под свою библиотеку.
+    def text_audio_prob(self, cos: float) -> float:
+        lo, hi = 0.20, 0.55
+        env = (os.getenv("SFX_CLAP_CALIB") or "").strip()
+        if "," in env:
+            try:
+                lo, hi = (float(x) for x in env.split(",", 1))
+            except ValueError:
+                pass
+        steep = 12.0 / max(hi - lo, 1e-6)
+        mid = (lo + hi) / 2
+        return float(1 / (1 + np.exp(-steep * (cos - mid))))
 
 
 def get_embedder():
-    """Factory: CLAP if SFX_USE_CLAP=1 and import works, else heuristic."""
-    if os.getenv("SFX_USE_CLAP") == "1":
-        try:
-            emb = CLAPEmbedder()
-            print("[embeddings] CLAP mode enabled")
-            return emb
-        except Exception as e:  # noqa: BLE001 - fall back gracefully
-            print(f"[embeddings] CLAP failed ({e}), falling back to heuristic demo mode")
-    else:
-        print("[embeddings] heuristic demo mode (set SFX_USE_CLAP=1 for real CLAP)")
+    """Factory без блокирующей загрузки.
+
+    CLAP весит ~2 ГБ и качается с сети, поэтому при старте мы НЕ грузим его
+    здесь: возвращаем эвристику, а `clap_runtime.RUNTIME` догружает модель
+    в фоне. Когда модель готова, индекс пересобирается (store.reindex_async).
+    Так сервер отвечает сразу, а UI видит state="loading" и прогресс.
+    """
+    from . import clap_runtime
+    if clap_runtime.ClapRuntime.enabled():
+        ready = clap_runtime.RUNTIME.embedder()
+        if ready is not None:
+            print("[embeddings] CLAP готов, используем его")
+            return ready
+        print("[embeddings] CLAP-режим: модель грузится в фоне, "
+              "пока работаю на эвристике (см. /api/health)")
+        return HeuristicEmbedder()
+    print("[embeddings] heuristic demo mode (set SFX_USE_CLAP=1 for real CLAP)")
     return HeuristicEmbedder()

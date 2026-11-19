@@ -80,7 +80,15 @@ export default function ImportModal({ isOpen, onClose }: ImportModalProps) {
       const mapped = remote.map(toAudioFile);
       mapped.forEach(f => setAudioUrl(f.id, api.getAudioUrl(f.id)));
       setFiles(mapped);
-      setScanMsg(`✓ Проиндексировано файлов: ${remote.length}. Каталог обновлён.`);
+      const st = await api.scanStatus();
+      const blind = Number(st.result?.without_tags ?? 0);
+      const welcome = `✓ Проиндексировано файлов: ${remote.length}. Каталог обновлён.`;
+      // Файлы, о которых нет ни одного слова (имя вида 1-20133-A-39.wav и нет
+      // tags.csv): их найдёт только поиск по звуку или ручная разметка.
+      setScanMsg(blind > 0
+        ? `${welcome} ⚠ У ${blind} из ${remote.length} файлов нет ни тегов, ни осмысленного имени — `
+          + 'они не найдутся по словам. Добавьте tags.csv в папку или разметьте их во вкладке «Разметка».'
+        : welcome);
     } catch (e) {
       setScanMsg(`✕ ${e instanceof Error ? e.message : 'бэкенд недоступен'}`);
     } finally {

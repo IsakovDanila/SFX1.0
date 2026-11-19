@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import threading
 import time
 import uuid
 
@@ -25,13 +27,15 @@ import numpy as np
 from . import audio_features as af
 from . import autotag as AT
 from . import embeddings as E
+from . import labels_ru
 
 INDEX_PATH = os.getenv("SFX_INDEX_PATH", os.path.join(
     os.path.dirname(__file__), "..", "..", "data", "index.json"))
 
 AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".oga", ".m4a", ".aif", ".aiff"}
 
-STORE_SCHEMA = 2  # bump to force a full rescan after feature changes
+STORE_SCHEMA = 3  # bump to force a full rescan after feature changes
+                  # 3 = русские теги категорий (labels_ru)
 
 
 def _confidence_from_cosine(c: float) -> int:
@@ -41,6 +45,16 @@ def _confidence_from_cosine(c: float) -> int:
 
 def _confidence_from_keyword(s: float) -> int:
     return int(np.clip(round(38 + 61 * s), 5, 99))
+
+
+def _merge_tags(base: list[str], extra: list[str]) -> list[str]:
+    """Дописать теги без дублей, сохранив порядок (сначала исходные)."""
+    out, seen = list(base), {str(t).lower() for t in base}
+    for t in extra:
+        if t and str(t).lower() not in seen:
+            seen.add(str(t).lower())
+            out.append(t)
+    return out
 
 
 def _merge_auto_tags(base: list[str], auto: list[dict]) -> list[str]:
@@ -65,6 +79,34 @@ class JsonStore:
         self._by_id: dict[str, dict] = {}
         if os.path.exists(self.path):
             self.load()
+
+    # ---------- режим эмбеддера ----------
+    def use_embedder(self, embedder, reindex: bool = True) -> None:
+        """Переключить эмбеддер (например, когда CLAP догрузился).
+
+        Индекс пересобирается в фоне: у CLAP-векторов другая размерность,
+        старые записи эвристики ему не подходят.
+        """
+        if embedder is None or embedder.name == self.embedder.name:
+            return
+        self.embedder = embedder
+        self._tagger = None
+        if not reindex:
+            return
+        folders = sorted({os.path.dirname(it.get("path", "")) for it in self.items
+                          if it.get("path")})
+        if not folders:
+            return
+        root = os.path.commonpath(folders) if len(folders) > 1 else folders[0]
+        print(f"[store] переключаюсь на {embedder.name}, переиндексация: {root}")
+        threading.Thread(target=self._reindex_safe, args=(root,), daemon=True).start()
+
+    def _reindex_safe(self, folder: str) -> None:
+        try:
+            self.scan_folder(folder)
+            print(f"[store] переиндексация завершена: {len(self.items)} файлов")
+        except Exception as e:  # noqa: BLE001
+            print(f"[store] переиндексация не удалась: {e}")
 
     # ---------- persistence ----------
     def load(self) -> None:
@@ -124,13 +166,16 @@ class JsonStore:
             vec = self.embedder.audio_vector(feats)
             auto_tags = []
         if not description:
-            description = (f"{category}: {', '.join(tags[:8])}" if category
-                           else ", ".join(tags[:8]))
+            # без мусора вида "airplane: " при пустых тегах
+            head = labels_ru.ru_name(category) if category else ""
+            tail = ", ".join(tags[:8])
+            description = f"{head}: {tail}" if head and tail else (tail or head)
         return {
             "id": uuid.uuid5(uuid.NAMESPACE_URL, file_path).hex,
             "path": file_path,
             "filename": filename,
             "category": category,
+            "category_ru": labels_ru.ru_name(category),
             "tags": tags,
             "auto_tags": auto_tags,
             "description": description,
@@ -196,12 +241,23 @@ class JsonStore:
                         and (old.get("mtime"), old.get("size")) == sig
                         and old.get("embedder") == self.embedder.name
                         and "vector" in old):
-                    # reuse: refresh truth-based fields (tags.csv may be edited)
+                    # reuse: обновляем поля из tags.csv, НО не затираем ручную
+                    # разметку: пустые теги в CSV больше не стирают теги,
+                    # добавленные пользователем через «Разметку».
                     if ap in truth:
                         category, tags, desc = truth[ap]
-                        old["category"], old["tags"] = category, tags
+                        old["category"] = category or old.get("category", "")
+                        old["category_ru"] = labels_ru.ru_name(old["category"])
+                        old["tags"] = self._tags_for(old["category"], tags, old)
                         if desc:
                             old["description"] = desc
+                        elif not old.get("description"):
+                            old["description"] = self._auto_description(
+                                old["category"], old["tags"])
+                    elif not old.get("tags"):
+                        # запись без тегов (например, старый индекс) — досыпаем
+                        old["tags"] = self._tags_for(old.get("category", ""), [], old)
+                    old["category_ru"] = labels_ru.ru_name(old.get("category", ""))
                     new_items.append(old)
                     reused += 1
                 else:
@@ -209,19 +265,25 @@ class JsonStore:
                         category, tags, desc = truth[ap]
                     else:
                         name = os.path.basename(fp)
-                        category = os.path.basename(os.path.dirname(fp)) or ""
-                        tags = [t for t in E.tokenize(os.path.splitext(name)[0])
-                                if len(t) > 1]
+                        parent = os.path.basename(os.path.dirname(fp)) or ""
+                        # папка может называться с большой буквы или по-русски:
+                        # приводим к ключу словаря, чтобы нашлись русские метки
+                        cat_key = labels_ru.normalize_key(parent)
+                        category = (cat_key if labels_ru.is_known(cat_key)
+                                    else parent)
+                        tags = self._tags_from_filename(name)
                         desc = ""
-                    item = self.add_file(ap, category=category, tags=tags,
+                    item = self.add_file(ap, category=category,
+                                         tags=self._tags_for(category, tags),
                                          description=desc)
                     # keep user edits when re-analyzing a changed file
-                    if old is not None and ap not in truth:
-                        item["tags"] = old.get("tags", item["tags"])
-                        item["description"] = old.get("description",
-                                                      item["description"])
-                    elif old is None and ap not in truth:
-                        # brand-new file: filename tokens + CLAP auto tags
+                    if old is not None:
+                        merged = _merge_tags(old.get("tags", []), item["tags"])
+                        item["tags"] = merged
+                        if old.get("description"):
+                            item["description"] = old["description"]
+                    else:
+                        # brand-new file: русские метки + имя файла + CLAP-гипотезы
                         item["tags"] = _merge_auto_tags(
                             item["tags"], item.get("auto_tags", []))
                     new_items.append(item)
@@ -234,8 +296,63 @@ class JsonStore:
         self._by_id = {it["id"]: it for it in new_items}
         self.save()
         dt = time.time() - t0
+        # «слепые» файлы: о звуке нет ни одного слова (имя вида 1-20133-A-39.wav
+        # и нет tags.csv). Честно сообщаем в UI, что их найдёт только звук/теги.
+        blind = [it["filename"] for it in new_items
+                 if not it.get("tags") or (
+                     len(it.get("tags", [])) <= 1
+                     and not labels_ru.is_known(it.get("category", "")))]
         return {"indexed": len(new_items), "added": added, "reused": reused,
-                "skipped_errors": errors, "seconds": round(dt, 2)}
+                "skipped_errors": errors, "seconds": round(dt, 2),
+                "without_tags": len(blind),
+                "without_tags_examples": blind[:5]}
+
+    # ---------- tags ----------
+    @staticmethod
+    def _auto_description(category: str, tags: list[str]) -> str:
+        head = labels_ru.ru_name(category) if category else ""
+        tail = ", ".join(tags[:8])
+        return f"{head}: {tail}" if head and tail else (tail or head)
+
+    @staticmethod
+    def _tags_from_filename(name: str) -> list[str]:
+        """Теги из имени файла: англ. слова + русские метки категории.
+
+        `glass_breaking_01.wav` -> [glass, breaking, разбитое стекло, стекло, ...]
+        Работает и без tags.csv, и с русскими именами файлов.
+        """
+        stem = os.path.splitext(name)[0]
+        toks = [t for t in E.tokenize(stem) if len(t) > 1 and not t.isdigit()]
+        out = list(toks)
+        # голосуем: сколько слов имени указывают на каждую категорию
+        # («капли воды» -> water_drops 2 голоса, «капли» -> rain 1 голос)
+        votes: dict[str, int] = {}
+        for tok in toks:
+            for key in labels_ru.keys_for_token_prefix(tok):
+                votes[key] = votes.get(key, 0) + 1
+        if votes:
+            best = max(votes.values())
+            winners = [k for k, v in votes.items() if v == best]
+            for key in sorted(winners):
+                out = _merge_tags(out, labels_ru.ru_tags(key, limit=4))
+        # локаль папки в имени файла (asr/glass_breaking_01.wav)
+        norm = re.sub(r"[^a-zа-яё_]+", "_", stem.lower())
+        for key in labels_ru.RU_LABELS:
+            if re.search(rf"(^|_){re.escape(key.lstrip('_'))}(_|$)", norm):
+                out = _merge_tags(out, labels_ru.ru_tags(key))
+        return out
+
+    def _tags_for(self, category: str, csv_tags: list[str],
+                  old: dict | None = None) -> list[str]:
+        """Итоговые теги записи: теги из tags.csv -> + русские метки категории.
+
+        `old` (существующая запись) сохраняет свою ручную разметку: её теги
+        идут первыми и никогда не теряются.
+        """
+        manual = list(old.get("tags", [])) if old else []
+        out = _merge_tags(manual, csv_tags or [])
+        out = _merge_tags(out, labels_ru.ru_tags(category))
+        return out
 
     # ---------- shapes ----------
     @staticmethod
@@ -258,6 +375,7 @@ class JsonStore:
             "sample_rate": it.get("orig_sr", af.ANALYSIS_SR),
             "channels": it.get("channels", 1),
             "category": it.get("category", "") or "Без категории",
+            "category_ru": labels_ru.ru_name(it.get("category", "")),
             "tags": it.get("tags", []),
             "auto_tags": it.get("auto_tags", []),
             "description": it.get("description", ""),
@@ -268,6 +386,18 @@ class JsonStore:
                 "has_reverb": (f.get("reverb_proxy", 0) or 0) > 0.25,
             },
         }
+
+    def _confidence_clap(self, cos: float, fused: float) -> int:
+        """Уверенность для CLAP: калиброванный косинус, а не сырой RRF.
+
+        Сырой RRF всегда даёт ~100% первому результату — на экране это
+        выглядело бы как «всегда уверен». Берём вероятность по косинусу
+        и мягко смешиваем с позицией в гибридном списке.
+        """
+        prob = self.embedder.text_audio_prob(cos) if hasattr(
+            self.embedder, "text_audio_prob") else (cos + 1) / 2
+        val = 0.75 * prob + 0.25 * min(1.0, max(0.0, fused))
+        return int(np.clip(round(val * 100), 5, 99))
 
     def _hit(self, it: dict, score: float, confidence: int) -> dict:
         return {"id": it["id"], "score": round(float(score), 4),
@@ -315,7 +445,8 @@ class JsonStore:
             fused.sort(key=lambda x: -x[0])
             best = fused[0][0] if fused else 1.0
             results = [self._hit(self.items[i], rrf / best,
-                                 _confidence_from_keyword(rrf / best))
+                                 self._confidence_clap(clap_scores[i],
+                                                       rrf / best))
                        for rrf, i in fused[:top_k]]
             weak = ((max(clap_scores) if clap_scores else 0) < 0.12
                     and (max(kw_scores) if kw_scores else 0) <= 0)

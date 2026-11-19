@@ -9,6 +9,8 @@ export interface AudioFile {
   tags: string[];
   autoTags: { ru: string; en: string; group: string; score: number }[];
   category: string;
+  /** исходный (английский) ключ категории, если категория локализована */
+  categoryKey?: string;
   description: string;
   spectralFeatures: {
     pitch: string;

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node / фронтенд
+node_modules/
+dist/
+.vite/
+
+# Данные индекса (генерируются сканированием)
+data/index.json
+
+# OS
+.DS_Store
+Thumbs.db

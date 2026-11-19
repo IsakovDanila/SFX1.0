@@ -3,6 +3,7 @@ import { useStore } from './store/useStore';
 import { mockAudioFiles } from './data/mockData';
 import { api, toAudioFile } from './api/client';
 import Header from './components/Header';
+import ClapStatusBanner from './components/ClapStatusBanner';
 import AudioCatalog from './components/AudioCatalog';
 import SearchView from './components/SearchView';
 import AnnotationMode from './components/AnnotationMode';
@@ -66,6 +67,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       <Header />
+      <ClapStatusBanner />
       <main className="flex-1 p-6 overflow-hidden">
         {renderView()}
       </main>

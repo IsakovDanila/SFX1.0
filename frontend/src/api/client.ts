@@ -18,6 +18,8 @@ export interface ApiFile {
   sample_rate: number;
   channels: number;
   category: string;
+  /** русское название категории с бэкенда (labels_ru) */
+  category_ru?: string;
   tags: string[];
   auto_tags?: { ru: string; en: string; group: string; score: number }[];
   description: string;
@@ -27,6 +29,21 @@ export interface ApiFile {
     has_noise: boolean;
     has_reverb: boolean;
   };
+}
+
+/** Состояние CLAP-режима с бэкенда (GET /api/clap/status) */
+export interface ClapStatus {
+  state: 'disabled' | 'loading' | 'ready' | 'failed';
+  step: string;
+  error: string;
+  hint: string;
+  device: string;
+  ckpt: string;
+  model_id: string;
+  elapsed_s: number;
+  ready: boolean;
+  active_embedder?: string;
+  indexed?: number;
 }
 
 export interface SearchResult {
@@ -45,7 +62,9 @@ export function toAudioFile(f: ApiFile): AudioFile {
     channels: f.channels ?? 1,
     tags: f.tags ?? [],
     autoTags: f.auto_tags ?? [],
-    category: f.category || 'Без категории',
+    // В интерфейсе показываем русское название, ключ датасета держим отдельно
+    category: f.category_ru || f.category || 'Без категории',
+    categoryKey: f.category || '',
     description: f.description ?? '',
     spectralFeatures: {
       pitch: f.spectral_features?.pitch ?? 'средний',
@@ -184,6 +203,24 @@ export const api = {
   async health(): Promise<{ status: string; embedder: string; indexed: number }> {
     const response = await fetch(`${API_URL}/api/health`);
     if (!response.ok) throw new Error('health failed');
+    return response.json();
+  },
+
+  /**
+   * Состояние CLAP-режима (плашка в UI)
+   */
+  async clapStatus(): Promise<ClapStatus> {
+    const response = await fetch(`${API_URL}/api/clap/status`);
+    if (!response.ok) throw new Error('clap status failed');
+    return response.json();
+  },
+
+  /**
+   * Повторить загрузку CLAP (например, после скачивания весов)
+   */
+  async clapRetry(): Promise<ClapStatus & { status: string }> {
+    const response = await fetch(`${API_URL}/api/clap/retry`, { method: 'POST' });
+    if (!response.ok) throw new Error('clap retry failed');
     return response.json();
   },
 

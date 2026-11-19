@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import audio_features as af
+from . import clap_runtime
 from . import embeddings as E
 from .store import JsonStore, get_store
 
@@ -37,6 +38,37 @@ store: JsonStore = get_store()
 
 scan_state: dict = {"status": "idle", "total": 0, "done": 0, "current": "",
                     "result": None}
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    """CLAP грузим в фоне: сервер должен отвечать сразу, а не через 5 минут.
+
+    Когда модель готова, стор переключается на неё и переиндексирует
+    библиотеку (у CLAP-векторов другая размерность).
+    """
+    clap_runtime.RUNTIME.start()
+    if not clap_runtime.ClapRuntime.enabled():
+        return
+
+    def _watch() -> None:
+        import time
+        while True:
+            time.sleep(2)
+            st = clap_runtime.RUNTIME.state
+            if st == "ready":
+                emb = clap_runtime.RUNTIME.embedder()
+                if emb is not None and emb.name != store.embedder.name:
+                    store.use_embedder(emb)
+                return
+            if st in ("failed", "disabled"):
+                print(f"[main] CLAP недоступен ({st}): "
+                      f"{clap_runtime.RUNTIME.error or 'нет причины'}. "
+                      f"Работаем на эвристике.", flush=True)
+                return
+
+    import threading
+    threading.Thread(target=_watch, name="clap-watch", daemon=True).start()
 
 
 # ---------- schemas ----------
@@ -65,8 +97,32 @@ class AnnotateRequest(BaseModel):
 # ---------- meta ----------
 @app.get("/api/health")
 def health():
+    """Короткий контракт сохранён (status/embedder/indexed) + блок clap."""
     return {"status": "ok", "embedder": store.embedder.name,
-            "indexed": len(store.items), "version": app.version}
+            "indexed": len(store.items), "version": app.version,
+            "clap": clap_runtime.RUNTIME.status()}
+
+
+@app.get("/api/clap/status")
+def clap_status():
+    """Состояние CLAP для плашки в UI: loading / ready / failed / disabled."""
+    st = clap_runtime.RUNTIME.status()
+    st["active_embedder"] = store.embedder.name
+    st["indexed"] = len(store.items)
+    return st
+
+
+@app.post("/api/clap/retry")
+def clap_retry():
+    """Повторить загрузку (например, после того как пользователь скачал веса)."""
+    if not clap_runtime.ClapRuntime.enabled():
+        raise HTTPException(400, "CLAP выключен: запустите с SFX_USE_CLAP=1 "
+                                 "(см. start-backend-clap.sh)")
+    if clap_runtime.RUNTIME.state == "loading":
+        return {"status": "already_loading", **clap_runtime.RUNTIME.status()}
+    clap_runtime.RUNTIME.state = "disabled"
+    clap_runtime.RUNTIME.start()
+    return {"status": "restarted", **clap_runtime.RUNTIME.status()}
 
 
 @app.get("/")
