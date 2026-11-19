@@ -23,6 +23,8 @@ import re
 
 import numpy as np
 
+from . import labels_ru
+
 # Synonym map per demo category: EN (team decision) + RU (UI language).
 # 'cinematic' belongs to both explosion and whoosh: exact-token count
 # still disambiguates ("cinematic explosion" vs "cinematic whoosh").
@@ -58,6 +60,14 @@ SYNONYMS: dict[str, list[str]] = {
                 "выстрел", "пистолет", "винтовка", "оружие", "стрельба",
                 "огонь", "ружьё", "ружье"],
 }
+
+# Русские метки для всех остальных категорий (ESC-50 и чужие библиотеки).
+# Ключи не пересекаются с SYNONYMS выше, поэтому обновление безопасно.
+for _key, _entry in labels_ru.RU_LABELS.items():
+    SYNONYMS.setdefault(_key, [])
+    for _w in _entry["tags"]:
+        if _w not in SYNONYMS[_key]:
+            SYNONYMS[_key].append(_w)
 
 TOKEN_RE = re.compile(r"[a-zа-яё']+")
 
@@ -130,7 +140,11 @@ def _match(t: str, h: str) -> bool:
 def keyword_score(query_tokens: list[str], item: dict) -> float:
     """Lexical match of query against category synonyms + tags + filename."""
     hay: set[str] = set()
-    for w in SYNONYMS.get(item.get("category", ""), []):
+    cat_key = labels_ru.normalize_key(item.get("category", ""))
+    for w in SYNONYMS.get(cat_key, []):
+        hay.add(_stem(w))
+    # русское название категории тоже считается попаданием
+    for w in tokenize(labels_ru.ru_name(item.get("category", ""))):
         hay.add(_stem(w))
     for t in tokenize(" ".join(item.get("tags", []))):
         hay.add(_stem(t))

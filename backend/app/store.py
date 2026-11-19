@@ -25,13 +25,15 @@ import numpy as np
 from . import audio_features as af
 from . import autotag as AT
 from . import embeddings as E
+from . import labels_ru
 
 INDEX_PATH = os.getenv("SFX_INDEX_PATH", os.path.join(
     os.path.dirname(__file__), "..", "..", "data", "index.json"))
 
 AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".oga", ".m4a", ".aif", ".aiff"}
 
-STORE_SCHEMA = 2  # bump to force a full rescan after feature changes
+STORE_SCHEMA = 3  # bump to force a full rescan after feature changes
+                  # 3 = русские теги категорий (labels_ru)
 
 
 def _confidence_from_cosine(c: float) -> int:
@@ -41,6 +43,16 @@ def _confidence_from_cosine(c: float) -> int:
 
 def _confidence_from_keyword(s: float) -> int:
     return int(np.clip(round(38 + 61 * s), 5, 99))
+
+
+def _merge_tags(base: list[str], extra: list[str]) -> list[str]:
+    """Дописать теги без дублей, сохранив порядок (сначала исходные)."""
+    out, seen = list(base), {str(t).lower() for t in base}
+    for t in extra:
+        if t and str(t).lower() not in seen:
+            seen.add(str(t).lower())
+            out.append(t)
+    return out
 
 
 def _merge_auto_tags(base: list[str], auto: list[dict]) -> list[str]:
@@ -124,13 +136,16 @@ class JsonStore:
             vec = self.embedder.audio_vector(feats)
             auto_tags = []
         if not description:
-            description = (f"{category}: {', '.join(tags[:8])}" if category
-                           else ", ".join(tags[:8]))
+            # без мусора вида "airplane: " при пустых тегах
+            head = labels_ru.ru_name(category) if category else ""
+            tail = ", ".join(tags[:8])
+            description = f"{head}: {tail}" if head and tail else (tail or head)
         return {
             "id": uuid.uuid5(uuid.NAMESPACE_URL, file_path).hex,
             "path": file_path,
             "filename": filename,
             "category": category,
+            "category_ru": labels_ru.ru_name(category),
             "tags": tags,
             "auto_tags": auto_tags,
             "description": description,
@@ -196,12 +211,23 @@ class JsonStore:
                         and (old.get("mtime"), old.get("size")) == sig
                         and old.get("embedder") == self.embedder.name
                         and "vector" in old):
-                    # reuse: refresh truth-based fields (tags.csv may be edited)
+                    # reuse: обновляем поля из tags.csv, НО не затираем ручную
+                    # разметку: пустые теги в CSV больше не стирают теги,
+                    # добавленные пользователем через «Разметку».
                     if ap in truth:
                         category, tags, desc = truth[ap]
-                        old["category"], old["tags"] = category, tags
+                        old["category"] = category or old.get("category", "")
+                        old["category_ru"] = labels_ru.ru_name(old["category"])
+                        old["tags"] = self._tags_for(old["category"], tags, old)
                         if desc:
                             old["description"] = desc
+                        elif not old.get("description"):
+                            old["description"] = self._auto_description(
+                                old["category"], old["tags"])
+                    elif not old.get("tags"):
+                        # запись без тегов (например, старый индекс) — досыпаем
+                        old["tags"] = self._tags_for(old.get("category", ""), [], old)
+                    old["category_ru"] = labels_ru.ru_name(old.get("category", ""))
                     new_items.append(old)
                     reused += 1
                 else:
@@ -213,15 +239,17 @@ class JsonStore:
                         tags = [t for t in E.tokenize(os.path.splitext(name)[0])
                                 if len(t) > 1]
                         desc = ""
-                    item = self.add_file(ap, category=category, tags=tags,
+                    item = self.add_file(ap, category=category,
+                                         tags=self._tags_for(category, tags),
                                          description=desc)
                     # keep user edits when re-analyzing a changed file
-                    if old is not None and ap not in truth:
-                        item["tags"] = old.get("tags", item["tags"])
-                        item["description"] = old.get("description",
-                                                      item["description"])
-                    elif old is None and ap not in truth:
-                        # brand-new file: filename tokens + CLAP auto tags
+                    if old is not None:
+                        merged = _merge_tags(old.get("tags", []), item["tags"])
+                        item["tags"] = merged
+                        if old.get("description"):
+                            item["description"] = old["description"]
+                    else:
+                        # brand-new file: русские метки + имя файла + CLAP-гипотезы
                         item["tags"] = _merge_auto_tags(
                             item["tags"], item.get("auto_tags", []))
                     new_items.append(item)
@@ -236,6 +264,25 @@ class JsonStore:
         dt = time.time() - t0
         return {"indexed": len(new_items), "added": added, "reused": reused,
                 "skipped_errors": errors, "seconds": round(dt, 2)}
+
+    # ---------- tags ----------
+    @staticmethod
+    def _auto_description(category: str, tags: list[str]) -> str:
+        head = labels_ru.ru_name(category) if category else ""
+        tail = ", ".join(tags[:8])
+        return f"{head}: {tail}" if head and tail else (tail or head)
+
+    def _tags_for(self, category: str, csv_tags: list[str],
+                  old: dict | None = None) -> list[str]:
+        """Итоговые теги записи: теги из tags.csv -> + русские метки категории.
+
+        `old` (существующая запись) сохраняет свою ручную разметку: её теги
+        идут первыми и никогда не теряются.
+        """
+        manual = list(old.get("tags", [])) if old else []
+        out = _merge_tags(manual, csv_tags or [])
+        out = _merge_tags(out, labels_ru.ru_tags(category))
+        return out
 
     # ---------- shapes ----------
     @staticmethod
@@ -258,6 +305,7 @@ class JsonStore:
             "sample_rate": it.get("orig_sr", af.ANALYSIS_SR),
             "channels": it.get("channels", 1),
             "category": it.get("category", "") or "Без категории",
+            "category_ru": labels_ru.ru_name(it.get("category", "")),
             "tags": it.get("tags", []),
             "auto_tags": it.get("auto_tags", []),
             "description": it.get("description", ""),

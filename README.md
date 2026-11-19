@@ -9,7 +9,7 @@
 | Задача | Статус |
 |---|---|
 | D1 Окружение и pipeline | ✅ работает на CPU, без GPU |
-| R2 Проверка поиска, Recall@10 ≥ 0.5 | ✅ **1.0** (24 запроса: EN + RU) |
+| R2 Проверка поиска, Recall@10 ≥ 0.5 | ✅ **1.0** (58 **русских** запросов, ESC-50) |
 | D3 ChromaDB + FastAPI | ✅ FastAPI по контракту команды; ChromaDB — опционально |
 | D2 Прототип Web-UI | ✅ ваш фронт, поиск/оценка/разметка — на живом API |
 | D4 README | ✅ этот файл |
@@ -55,8 +55,9 @@ sfx-smart-search/
 │   ├── main.py               # FastAPI: контракт команды (/api/files, PUT tags, ...)
 │   ├── store.py              # JSON/numpy store + shape под client.ts
 │   ├── embeddings.py         # CLAP (full) / heuristic EN+RU (demo)
+│   ├── labels_ru.py          # русские названия и теги 58 категорий
 │   └── audio_features.py     # Librosa: pitch, energy, noise, reverb, MFCC
-├── scripts/                  # generate_demo_sounds, demo_queries (24, EN+RU),
+├── scripts/                  # generate_demo_sounds, demo_queries_ru (58, RU),
 │                             # evaluate_recall
 ├── data/                     # demo_sfx (40 .wav + tags.csv), index.json
 ├── docs/original/            # ваши исходники как были (main.py, README, GUIDE)
@@ -83,17 +84,45 @@ sfx-smart-search/
 description, spectral_features:{pitch(низкий/средний/высокий),
 energy(low/medium/high), has_noise, has_reverb}}`.
 
+## Русские теги и русский поиск
+
+Теги **ставятся на русском**: интерфейс и звукорежиссёры говорят по-русски,
+а ключи датасета приходят по-английски (`glass_breaking`, `dog`). Словарь
+`backend/app/labels_ru.py` даёт каждой категории русское название и синонимы
+профессионального сленга — при сканировании они пишутся в `tags`:
+
+```
+1-20133-A-39.wav   category: glass_breaking / category_ru: «разбитое стекло»
+  tags: разбитое стекло, стекло, звон стекла, осколки, разбивание, бьётся стекло
+```
+
+Поэтому работают живые запросы: «разбилось стекло», «тиканье часов», «гроза»,
+«апчхи», «бибикает», «пылесосит ковёр», «кукареку», «треск костра».
+Покрыты 50 классов ESC-50 + 8 синтетических + алиасы чужих библиотек
+(`glassbreak`, `ui_click`, `wind_loop`, …). Неизвестный класс не ломает поиск:
+теги строятся из имени папки/файла, а `keywords`-поиск остаётся рабочим.
+
+- Теги из `tags.csv` имеют приоритет, но **не затирают** ручную разметку:
+  добавленные через «Разметку» теги переживают повторный скан.
+- В UI категория показывается по-русски (`category_ru`), ключ датасета
+  остаётся в `categoryKey` — группировка не ломается.
+- Свой словарь: добавьте запись в `RU_LABELS` (`key -> {"ru", "tags"}`).
+
 ## Метрики (R2 / HADI-3)
 
 ```bash
-python scripts/evaluate_recall.py
+python scripts/evaluate_recall.py      # русский набор (по умолчанию)
+SFX_QUERIES=scripts/demo_queries.json python scripts/evaluate_recall.py   # старый EN
 ```
 
-- **Recall@5 = 1.0, Recall@10 = 1.0** (24 запроса: 20 EN + 4 RU) → гейт пройден
+- **Recall@5 = 1.0, Recall@10 = 1.0** (58 русских запросов, 90 файлов ESC-50)
+  → гейт пройден
 - Поиск **< 1 мс**, индексация 40 файлов ~1.5 с на CPU;
   повторный скан инкрементальный (без изменений — мгновенно, теги целы)
-- Demo-режим билингвальный: понимает «metallic hit» и «тяжёлый
+- Demo-режим билингвальный: понимает и «metallic hit», и «тяжёлый
   металлический удар» (синонимы + толерантность к склонениям)
+- Регресс-тесты: `python scripts/test_ru_tags.py` — 10 проверок (русские теги,
+  русский запрос, сохранность ручной разметки, `category_ru`)
 
 ## Режимы эмбеддера
 

@@ -18,6 +18,8 @@ export interface ApiFile {
   sample_rate: number;
   channels: number;
   category: string;
+  /** русское название категории с бэкенда (labels_ru) */
+  category_ru?: string;
   tags: string[];
   auto_tags?: { ru: string; en: string; group: string; score: number }[];
   description: string;
@@ -45,7 +47,9 @@ export function toAudioFile(f: ApiFile): AudioFile {
     channels: f.channels ?? 1,
     tags: f.tags ?? [],
     autoTags: f.auto_tags ?? [],
-    category: f.category || 'Без категории',
+    // В интерфейсе показываем русское название, ключ датасета держим отдельно
+    category: f.category_ru || f.category || 'Без категории',
+    categoryKey: f.category || '',
     description: f.description ?? '',
     spectralFeatures: {
       pitch: f.spectral_features?.pitch ?? 'средний',

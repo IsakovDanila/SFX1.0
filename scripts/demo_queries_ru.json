@@ -1,0 +1,234 @@
+[
+  {
+    "query": "разбилось стекло",
+    "expected": "glass_breaking"
+  },
+  {
+    "query": "звон осколков",
+    "expected": "glass_breaking"
+  },
+  {
+    "query": "тиканье часов",
+    "expected": "clock_tick"
+  },
+  {
+    "query": "часы тикают",
+    "expected": "clock_tick"
+  },
+  {
+    "query": "гроза",
+    "expected": "thunderstorm"
+  },
+  {
+    "query": "раскаты грома",
+    "expected": "thunderstorm"
+  },
+  {
+    "query": "гремит гром",
+    "expected": "thunderstorm"
+  },
+  {
+    "query": "чихает",
+    "expected": "sneezing"
+  },
+  {
+    "query": "апчхи",
+    "expected": "sneezing"
+  },
+  {
+    "query": "автомобильный сигнал",
+    "expected": "car_horn"
+  },
+  {
+    "query": "гудок машины",
+    "expected": "car_horn"
+  },
+  {
+    "query": "бибикает",
+    "expected": "car_horn"
+  },
+  {
+    "query": "треск костра",
+    "expected": "crackling_fire"
+  },
+  {
+    "query": "дрова горят в костре",
+    "expected": "crackling_fire"
+  },
+  {
+    "query": "пылесос",
+    "expected": "vacuum_cleaner"
+  },
+  {
+    "query": "пылесосит ковёр",
+    "expected": "vacuum_cleaner"
+  },
+  {
+    "query": "капли воды",
+    "expected": "water_drops"
+  },
+  {
+    "query": "капает кран",
+    "expected": "water_drops"
+  },
+  {
+    "query": "дождь",
+    "expected": "rain"
+  },
+  {
+    "query": "ливень на улице",
+    "expected": "rain"
+  },
+  {
+    "query": "бензопила",
+    "expected": "chainsaw"
+  },
+  {
+    "query": "бензопила пилит",
+    "expected": "chainsaw"
+  },
+  {
+    "query": "ручная пила",
+    "expected": "hand_saw"
+  },
+  {
+    "query": "скрип пилы",
+    "expected": "hand_saw"
+  },
+  {
+    "query": "кашель",
+    "expected": "coughing"
+  },
+  {
+    "query": "человек кашляет",
+    "expected": "coughing"
+  },
+  {
+    "query": "смех",
+    "expected": "laughing"
+  },
+  {
+    "query": "хохот",
+    "expected": "laughing"
+  },
+  {
+    "query": "храп",
+    "expected": "snoring"
+  },
+  {
+    "query": "спит и храпит",
+    "expected": "snoring"
+  },
+  {
+    "query": "колокола",
+    "expected": "church_bells"
+  },
+  {
+    "query": "звон колоколов",
+    "expected": "church_bells"
+  },
+  {
+    "query": "самолёт",
+    "expected": "airplane"
+  },
+  {
+    "query": "гул самолёта",
+    "expected": "airplane"
+  },
+  {
+    "query": "двигатель",
+    "expected": "engine"
+  },
+  {
+    "query": "мотор работает",
+    "expected": "engine"
+  },
+  {
+    "query": "смыв унитаза",
+    "expected": "toilet_flush"
+  },
+  {
+    "query": "слив в туалете",
+    "expected": "toilet_flush"
+  },
+  {
+    "query": "печать на клавиатуре",
+    "expected": "keyboard_typing"
+  },
+  {
+    "query": "стук клавиш",
+    "expected": "keyboard_typing"
+  },
+  {
+    "query": "клик мыши",
+    "expected": "mouse_click"
+  },
+  {
+    "query": "щелчок кнопки",
+    "expected": "mouse_click"
+  },
+  {
+    "query": "жужжание насекомых",
+    "expected": "insects"
+  },
+  {
+    "query": "стиральная машина",
+    "expected": "washing_machine"
+  },
+  {
+    "query": "стирка и отжим",
+    "expected": "washing_machine"
+  },
+  {
+    "query": "фейерверк",
+    "expected": "fireworks"
+  },
+  {
+    "query": "салют в небе",
+    "expected": "fireworks"
+  },
+  {
+    "query": "плач ребёнка",
+    "expected": "crying_baby"
+  },
+  {
+    "query": "младенец плачет",
+    "expected": "crying_baby"
+  },
+  {
+    "query": "стук в дверь",
+    "expected": "door_wood_knock"
+  },
+  {
+    "query": "чистка зубов",
+    "expected": "brushing_teeth"
+  },
+  {
+    "query": "глоток воды",
+    "expected": "drinking_sipping"
+  },
+  {
+    "query": "мычание коровы",
+    "expected": "cow"
+  },
+  {
+    "query": "кудахтанье курицы",
+    "expected": "hen"
+  },
+  {
+    "query": "кваканье лягушки",
+    "expected": "frog"
+  },
+  {
+    "query": "сверчки ночью",
+    "expected": "crickets"
+  },
+  {
+    "query": "будильник звонит",
+    "expected": "clock_alarm"
+  },
+  {
+    "query": "дыхание человека",
+    "expected": "breathing"
+  }
+]
