@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import uuid
 
@@ -78,6 +79,34 @@ class JsonStore:
         self._by_id: dict[str, dict] = {}
         if os.path.exists(self.path):
             self.load()
+
+    # ---------- режим эмбеддера ----------
+    def use_embedder(self, embedder, reindex: bool = True) -> None:
+        """Переключить эмбеддер (например, когда CLAP догрузился).
+
+        Индекс пересобирается в фоне: у CLAP-векторов другая размерность,
+        старые записи эвристики ему не подходят.
+        """
+        if embedder is None or embedder.name == self.embedder.name:
+            return
+        self.embedder = embedder
+        self._tagger = None
+        if not reindex:
+            return
+        folders = sorted({os.path.dirname(it.get("path", "")) for it in self.items
+                          if it.get("path")})
+        if not folders:
+            return
+        root = os.path.commonpath(folders) if len(folders) > 1 else folders[0]
+        print(f"[store] переключаюсь на {embedder.name}, переиндексация: {root}")
+        threading.Thread(target=self._reindex_safe, args=(root,), daemon=True).start()
+
+    def _reindex_safe(self, folder: str) -> None:
+        try:
+            self.scan_folder(folder)
+            print(f"[store] переиндексация завершена: {len(self.items)} файлов")
+        except Exception as e:  # noqa: BLE001
+            print(f"[store] переиндексация не удалась: {e}")
 
     # ---------- persistence ----------
     def load(self) -> None:
@@ -358,6 +387,18 @@ class JsonStore:
             },
         }
 
+    def _confidence_clap(self, cos: float, fused: float) -> int:
+        """Уверенность для CLAP: калиброванный косинус, а не сырой RRF.
+
+        Сырой RRF всегда даёт ~100% первому результату — на экране это
+        выглядело бы как «всегда уверен». Берём вероятность по косинусу
+        и мягко смешиваем с позицией в гибридном списке.
+        """
+        prob = self.embedder.text_audio_prob(cos) if hasattr(
+            self.embedder, "text_audio_prob") else (cos + 1) / 2
+        val = 0.75 * prob + 0.25 * min(1.0, max(0.0, fused))
+        return int(np.clip(round(val * 100), 5, 99))
+
     def _hit(self, it: dict, score: float, confidence: int) -> dict:
         return {"id": it["id"], "score": round(float(score), 4),
                 "confidence": confidence, "file": self.their_shape(it)}
@@ -404,7 +445,8 @@ class JsonStore:
             fused.sort(key=lambda x: -x[0])
             best = fused[0][0] if fused else 1.0
             results = [self._hit(self.items[i], rrf / best,
-                                 _confidence_from_keyword(rrf / best))
+                                 self._confidence_clap(clap_scores[i],
+                                                       rrf / best))
                        for rrf, i in fused[:top_k]]
             weak = ((max(clap_scores) if clap_scores else 0) < 0.12
                     and (max(kw_scores) if kw_scores else 0) <= 0)

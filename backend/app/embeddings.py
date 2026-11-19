@@ -211,35 +211,79 @@ class HeuristicEmbedder:
 
 
 class CLAPEmbedder:
-    """Real semantic embeddings via laion-clap (optional heavy dep)."""
+    """Real semantic embeddings via laion-clap (optional heavy dep).
+
+    Параметры позволяют ставить модель офлайн и на слабых машинах:
+      ckpt     — путь к локальному .pt (иначе пакет скачает ~1.9 ГБ сам),
+      device   — "cpu" | "cuda:0" (по умолчанию автоопределение),
+      model_id — 0: 630k-best, 1: 630k-audioset-best.
+
+    Загрузка тяжёлая, поэтому обычный путь — через clap_runtime.RUNTIME,
+    который грузит модель в фоне и не подвешивает HTTP-сервер.
+    """
     name = "laion-clap"
     dim = 512
 
-    def __init__(self) -> None:
+    def __init__(self, ckpt: str | None = None, device: str | None = None,
+                 model_id: int = 1) -> None:
+        import torch
         from laion_clap import CLAP_Module  # lazy: only in full mode
-        self.model = CLAP_Module(enable_fusion=False)
-        self.model.load_ckpt()  # default 630k-audioset checkpoint
+
+        self.device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.ckpt = ckpt or ""
+        self.model = CLAP_Module(enable_fusion=False, device=self.device)
+        if ckpt:
+            self.model.load_ckpt(ckpt=ckpt, verbose=False)
+        else:
+            self.model.load_ckpt(model_id=model_id)
+        self.model.eval()
+
+    def _norm(self, arr) -> np.ndarray:
+        v = np.array(arr, dtype=float).ravel()
+        return v / (np.linalg.norm(v) + 1e-12)
 
     def audio_vector_file(self, path: str) -> np.ndarray:
         emb = self.model.get_audio_embedding_from_filelist([path], use_tensor=False)
-        v = np.array(emb[0], dtype=float)
-        return v / (np.linalg.norm(v) + 1e-12)
+        return self._norm(emb[0])
 
     def text_vector(self, query: str) -> np.ndarray:
         emb = self.model.get_text_embedding([query], use_tensor=False)
-        v = np.array(emb[0], dtype=float)
-        return v / (np.linalg.norm(v) + 1e-12)
+        return self._norm(emb[0])
+
+    # --- калибровка уверенности ---------------------------------------
+    # CLAP отдаёт косинус в узком диапазоне (релевантное ~0.3-0.6), поэтому
+    # «процент совпадения» из презентации нельзя брать как cos*100: всё
+    # выглядело бы на 30-50%. Переводим в вероятность логистической кривой.
+    # SFX_CLAP_CALIB=lo,hi позволяет подогнать под свою библиотеку.
+    def text_audio_prob(self, cos: float) -> float:
+        lo, hi = 0.20, 0.55
+        env = (os.getenv("SFX_CLAP_CALIB") or "").strip()
+        if "," in env:
+            try:
+                lo, hi = (float(x) for x in env.split(",", 1))
+            except ValueError:
+                pass
+        steep = 12.0 / max(hi - lo, 1e-6)
+        mid = (lo + hi) / 2
+        return float(1 / (1 + np.exp(-steep * (cos - mid))))
 
 
 def get_embedder():
-    """Factory: CLAP if SFX_USE_CLAP=1 and import works, else heuristic."""
-    if os.getenv("SFX_USE_CLAP") == "1":
-        try:
-            emb = CLAPEmbedder()
-            print("[embeddings] CLAP mode enabled")
-            return emb
-        except Exception as e:  # noqa: BLE001 - fall back gracefully
-            print(f"[embeddings] CLAP failed ({e}), falling back to heuristic demo mode")
-    else:
-        print("[embeddings] heuristic demo mode (set SFX_USE_CLAP=1 for real CLAP)")
+    """Factory без блокирующей загрузки.
+
+    CLAP весит ~2 ГБ и качается с сети, поэтому при старте мы НЕ грузим его
+    здесь: возвращаем эвристику, а `clap_runtime.RUNTIME` догружает модель
+    в фоне. Когда модель готова, индекс пересобирается (store.reindex_async).
+    Так сервер отвечает сразу, а UI видит state="loading" и прогресс.
+    """
+    from . import clap_runtime
+    if clap_runtime.ClapRuntime.enabled():
+        ready = clap_runtime.RUNTIME.embedder()
+        if ready is not None:
+            print("[embeddings] CLAP готов, используем его")
+            return ready
+        print("[embeddings] CLAP-режим: модель грузится в фоне, "
+              "пока работаю на эвристике (см. /api/health)")
+        return HeuristicEmbedder()
+    print("[embeddings] heuristic demo mode (set SFX_USE_CLAP=1 for real CLAP)")
     return HeuristicEmbedder()

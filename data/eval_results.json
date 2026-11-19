@@ -1,202 +1,276 @@
 {
   "mode": "heuristic-demo",
-  "queries_file": "demo_queries.json",
-  "n_queries": 24,
+  "queries_file": "demo_queries_ru.json",
+  "n_queries": 58,
   "n_files": 90,
-  "recall@5": 0.0,
-  "recall@10": 0.0,
-  "avg_ms": 11.7,
-  "gate_recall@10>=0.5": false,
+  "recall@5": 1.0,
+  "recall@10": 1.0,
+  "avg_ms": 3.3,
+  "gate_recall@10>=0.5": true,
   "details": [
     {
-      "query": "footstep on wooden floor",
-      "expected": "footstep_wood",
+      "query": "разбилось стекло",
+      "expected": "glass_breaking",
       "top5": [
-        "hand_saw",
-        "hand_saw",
-        "door_wood_knock",
-        "hand_saw",
-        "hand_saw"
+        "glass_breaking",
+        "glass_breaking"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "boots walking, steps on wood",
-      "expected": "footstep_wood",
+      "query": "звон осколков",
+      "expected": "glass_breaking",
       "top5": [
-        "hand_saw",
-        "hand_saw",
-        "door_wood_knock",
-        "hand_saw",
-        "hand_saw"
+        "glass_breaking",
+        "glass_breaking",
+        "church_bells",
+        "church_bells",
+        "church_bells"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "dull thump of a step",
-      "expected": "footstep_wood",
+      "query": "тиканье часов",
+      "expected": "clock_tick",
       "top5": [
-        "keyboard_typing",
-        "door_wood_knock",
-        "airplane",
+        "clock_tick",
+        "clock_tick"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "часы тикают",
+      "expected": "clock_tick",
+      "top5": [
+        "clock_tick",
+        "clock_tick"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "гроза",
+      "expected": "thunderstorm",
+      "top5": [
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "раскаты грома",
+      "expected": "thunderstorm",
+      "top5": [
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "гремит гром",
+      "expected": "thunderstorm",
+      "top5": [
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm",
+        "thunderstorm"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "чихает",
+      "expected": "sneezing",
+      "top5": [
+        "sneezing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "апчхи",
+      "expected": "sneezing",
+      "top5": [
+        "sneezing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "автомобильный сигнал",
+      "expected": "car_horn",
+      "top5": [
+        "car_horn",
+        "car_horn",
+        "car_horn",
+        "car_horn",
+        "car_horn"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "гудок машины",
+      "expected": "car_horn",
+      "top5": [
+        "car_horn",
+        "car_horn",
+        "car_horn",
+        "car_horn",
+        "car_horn"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "бибикает",
+      "expected": "car_horn",
+      "top5": [
+        "car_horn",
+        "car_horn",
+        "car_horn",
+        "car_horn",
+        "car_horn"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "треск костра",
+      "expected": "crackling_fire",
+      "top5": [
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "дрова горят в костре",
+      "expected": "crackling_fire",
+      "top5": [
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "пылесос",
+      "expected": "vacuum_cleaner",
+      "top5": [
+        "vacuum_cleaner",
+        "vacuum_cleaner",
+        "vacuum_cleaner"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "пылесосит ковёр",
+      "expected": "vacuum_cleaner",
+      "top5": [
+        "vacuum_cleaner",
+        "vacuum_cleaner",
+        "vacuum_cleaner"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "капли воды",
+      "expected": "water_drops",
+      "top5": [
+        "water_drops",
+        "water_drops",
+        "water_drops",
         "water_drops",
         "water_drops"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "cinematic explosion",
-      "expected": "explosion_cinematic",
+      "query": "капает кран",
+      "expected": "water_drops",
       "top5": [
-        "fireworks",
-        "fireworks"
+        "water_drops",
+        "water_drops",
+        "water_drops",
+        "water_drops",
+        "water_drops"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "epic blast boom",
-      "expected": "explosion_cinematic",
+      "query": "дождь",
+      "expected": "rain",
       "top5": [
-        "fireworks",
-        "fireworks"
+        "rain",
+        "rain",
+        "rain"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "soft interface click",
-      "expected": "interface_click",
+      "query": "ливень на улице",
+      "expected": "rain",
       "top5": [
-        "mouse_click"
+        "keyboard_typing",
+        "rain",
+        "rain",
+        "rain"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "ui button press blip",
-      "expected": "interface_click",
+      "query": "бензопила",
+      "expected": "chainsaw",
       "top5": [
-        "mouse_click"
+        "chainsaw",
+        "chainsaw",
+        "chainsaw"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "metallic hit",
-      "expected": "metal_hit",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "clang of steel impact",
-      "expected": "metal_hit",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "hammer hits metal",
-      "expected": "metal_hit",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "glass shattering",
-      "expected": "glass_break",
+      "query": "бензопила пилит",
+      "expected": "chainsaw",
       "top5": [
-        "glass_breaking",
-        "glass_breaking"
+        "chainsaw",
+        "chainsaw",
+        "chainsaw",
+        "hand_saw",
+        "hand_saw"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "window smash crash",
-      "expected": "glass_break",
-      "top5": [
-        "glass_breaking",
-        "glass_breaking"
-      ],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "cinematic whoosh",
-      "expected": "whoosh",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "sweep transition flyby",
-      "expected": "whoosh",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "wind pass whoosh",
-      "expected": "whoosh",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "thunder rumble",
-      "expected": "thunder",
-      "top5": [
-        "thunderstorm",
-        "thunderstorm",
-        "thunderstorm",
-        "thunderstorm",
-        "thunderstorm"
-      ],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "storm lightning strike",
-      "expected": "thunder",
-      "top5": [
-        "thunderstorm",
-        "thunderstorm",
-        "thunderstorm",
-        "thunderstorm",
-        "thunderstorm"
-      ],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "gunshot",
-      "expected": "gunshot",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "pistol firing",
-      "expected": "gunshot",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "rifle shot",
-      "expected": "gunshot",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
-    },
-    {
-      "query": "гулкий шаг по дереву",
-      "expected": "footstep_wood",
+      "query": "ручная пила",
+      "expected": "hand_saw",
       "top5": [
         "hand_saw",
         "hand_saw",
@@ -204,34 +278,387 @@
         "hand_saw",
         "hand_saw"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "кинематографичный взрыв",
-      "expected": "explosion_cinematic",
+      "query": "скрип пилы",
+      "expected": "hand_saw",
+      "top5": [
+        "hand_saw",
+        "hand_saw",
+        "hand_saw",
+        "hand_saw",
+        "hand_saw"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "кашель",
+      "expected": "coughing",
+      "top5": [
+        "coughing",
+        "coughing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "человек кашляет",
+      "expected": "coughing",
+      "top5": [
+        "coughing",
+        "coughing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "смех",
+      "expected": "laughing",
+      "top5": [
+        "laughing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "хохот",
+      "expected": "laughing",
+      "top5": [
+        "laughing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "храп",
+      "expected": "snoring",
+      "top5": [
+        "snoring"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "спит и храпит",
+      "expected": "snoring",
+      "top5": [
+        "snoring"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "колокола",
+      "expected": "church_bells",
+      "top5": [
+        "church_bells",
+        "church_bells",
+        "church_bells",
+        "church_bells"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "звон колоколов",
+      "expected": "church_bells",
+      "top5": [
+        "church_bells",
+        "church_bells",
+        "church_bells",
+        "church_bells",
+        "glass_breaking"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "самолёт",
+      "expected": "airplane",
+      "top5": [
+        "airplane",
+        "airplane"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "гул самолёта",
+      "expected": "airplane",
+      "top5": [
+        "airplane",
+        "airplane",
+        "vacuum_cleaner",
+        "vacuum_cleaner",
+        "vacuum_cleaner"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "двигатель",
+      "expected": "engine",
+      "top5": [
+        "engine",
+        "engine",
+        "engine"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "мотор работает",
+      "expected": "engine",
+      "top5": [
+        "engine",
+        "engine",
+        "engine"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "смыв унитаза",
+      "expected": "toilet_flush",
+      "top5": [
+        "toilet_flush"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "слив в туалете",
+      "expected": "toilet_flush",
+      "top5": [
+        "toilet_flush",
+        "fireworks",
+        "fireworks",
+        "door_wood_knock"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "печать на клавиатуре",
+      "expected": "keyboard_typing",
+      "top5": [
+        "keyboard_typing"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "стук клавиш",
+      "expected": "keyboard_typing",
+      "top5": [
+        "keyboard_typing",
+        "door_wood_knock"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "клик мыши",
+      "expected": "mouse_click",
+      "top5": [
+        "mouse_click"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "щелчок кнопки",
+      "expected": "mouse_click",
+      "top5": [
+        "mouse_click",
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire",
+        "crackling_fire"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "жужжание насекомых",
+      "expected": "insects",
+      "top5": [
+        "insects",
+        "insects",
+        "insects",
+        "hen",
+        "hen"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "стиральная машина",
+      "expected": "washing_machine",
+      "top5": [
+        "washing_machine",
+        "washing_machine",
+        "washing_machine",
+        "car_horn",
+        "car_horn"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "стирка и отжим",
+      "expected": "washing_machine",
+      "top5": [
+        "washing_machine",
+        "washing_machine",
+        "washing_machine"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "фейерверк",
+      "expected": "fireworks",
       "top5": [
         "fireworks",
         "fireworks"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "мягкий клик интерфейса",
-      "expected": "interface_click",
+      "query": "салют в небе",
+      "expected": "fireworks",
       "top5": [
-        "mouse_click"
+        "fireworks",
+        "fireworks",
+        "door_wood_knock"
       ],
-      "hit@5": false,
-      "hit@10": false
+      "hit@5": true,
+      "hit@10": true
     },
     {
-      "query": "тяжёлый металлический удар",
-      "expected": "metal_hit",
-      "top5": [],
-      "hit@5": false,
-      "hit@10": false
+      "query": "плач ребёнка",
+      "expected": "crying_baby",
+      "top5": [
+        "crying_baby",
+        "crying_baby"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "младенец плачет",
+      "expected": "crying_baby",
+      "top5": [
+        "crying_baby",
+        "crying_baby"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "стук в дверь",
+      "expected": "door_wood_knock",
+      "top5": [
+        "door_wood_knock",
+        "keyboard_typing",
+        "fireworks",
+        "fireworks"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "чистка зубов",
+      "expected": "brushing_teeth",
+      "top5": [
+        "brushing_teeth",
+        "brushing_teeth"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "глоток воды",
+      "expected": "drinking_sipping",
+      "top5": [
+        "drinking_sipping",
+        "water_drops",
+        "water_drops",
+        "water_drops",
+        "water_drops"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "мычание коровы",
+      "expected": "cow",
+      "top5": [
+        "cow"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "кудахтанье курицы",
+      "expected": "hen",
+      "top5": [
+        "hen",
+        "hen",
+        "hen"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "кваканье лягушки",
+      "expected": "frog",
+      "top5": [
+        "frog",
+        "frog",
+        "frog",
+        "frog",
+        "frog"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "сверчки ночью",
+      "expected": "crickets",
+      "top5": [
+        "crickets",
+        "crickets"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "будильник звонит",
+      "expected": "clock_alarm",
+      "top5": [
+        "clock_alarm",
+        "clock_alarm",
+        "church_bells",
+        "church_bells",
+        "glass_breaking"
+      ],
+      "hit@5": true,
+      "hit@10": true
+    },
+    {
+      "query": "дыхание человека",
+      "expected": "breathing",
+      "top5": [
+        "breathing"
+      ],
+      "hit@5": true,
+      "hit@10": true
     }
   ]
 }

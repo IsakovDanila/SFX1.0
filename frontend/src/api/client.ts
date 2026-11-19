@@ -31,6 +31,21 @@ export interface ApiFile {
   };
 }
 
+/** Состояние CLAP-режима с бэкенда (GET /api/clap/status) */
+export interface ClapStatus {
+  state: 'disabled' | 'loading' | 'ready' | 'failed';
+  step: string;
+  error: string;
+  hint: string;
+  device: string;
+  ckpt: string;
+  model_id: string;
+  elapsed_s: number;
+  ready: boolean;
+  active_embedder?: string;
+  indexed?: number;
+}
+
 export interface SearchResult {
   id: string;
   score: number;
@@ -188,6 +203,24 @@ export const api = {
   async health(): Promise<{ status: string; embedder: string; indexed: number }> {
     const response = await fetch(`${API_URL}/api/health`);
     if (!response.ok) throw new Error('health failed');
+    return response.json();
+  },
+
+  /**
+   * Состояние CLAP-режима (плашка в UI)
+   */
+  async clapStatus(): Promise<ClapStatus> {
+    const response = await fetch(`${API_URL}/api/clap/status`);
+    if (!response.ok) throw new Error('clap status failed');
+    return response.json();
+  },
+
+  /**
+   * Повторить загрузку CLAP (например, после скачивания весов)
+   */
+  async clapRetry(): Promise<ClapStatus & { status: string }> {
+    const response = await fetch(`${API_URL}/api/clap/retry`, { method: 'POST' });
+    if (!response.ok) throw new Error('clap retry failed');
     return response.json();
   },
 
