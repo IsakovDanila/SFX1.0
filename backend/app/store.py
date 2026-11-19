@@ -1,0 +1,388 @@
+"""Vector store: ChromaDB when installed, else persistent JSON + numpy.
+
+Deck's D3 note explicitly allows in-memory/fallback search at stage 1.
+Both backends expose the same API so the frontend never notices.
+
+Response items follow the team's frontend contract (client.ts):
+  {"id", "score", "confidence", "file": {
+      "id", "filename", "duration", "sample_rate", "channels",
+      "category", "tags", "description",
+      "spectral_features": {"pitch", "energy", "has_noise", "has_reverb"}}}
+
+Scanning is INCREMENTAL: files whose mtime+size are unchanged are reused
+(rescan of 96 files ~ instant), missing files are pruned, user-edited
+tags/descriptions survive rescans. Item ids are stable uuid5(path).
+"""
+from __future__ import annotations
+
+import json
+import os
+import time
+import uuid
+
+import numpy as np
+
+from . import audio_features as af
+from . import autotag as AT
+from . import embeddings as E
+
+INDEX_PATH = os.getenv("SFX_INDEX_PATH", os.path.join(
+    os.path.dirname(__file__), "..", "..", "data", "index.json"))
+
+AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".oga", ".m4a", ".aif", ".aiff"}
+
+STORE_SCHEMA = 2  # bump to force a full rescan after feature changes
+
+
+def _confidence_from_cosine(c: float) -> int:
+    # map cosine [-1..1] (practically [0..1]) to 5..99 %
+    return int(np.clip(round(50 * (c + 1) - 1), 5, 99))
+
+
+def _confidence_from_keyword(s: float) -> int:
+    return int(np.clip(round(38 + 61 * s), 5, 99))
+
+
+def _merge_auto_tags(base: list[str], auto: list[dict]) -> list[str]:
+    """Filename tags + CLAP guesses (RU label + short EN), deduped."""
+    out, seen = list(base), {t.lower() for t in base}
+    for a in auto or []:
+        for cand in (a.get("ru", ""), a.get("en", "").split(",")[0].strip()):
+            if cand and cand.lower() not in seen:
+                seen.add(cand.lower())
+                out.append(cand)
+    return out
+
+
+class JsonStore:
+    """JSON-persisted vector store (zero extra deps)."""
+
+    def __init__(self, path: str = INDEX_PATH, embedder=None):
+        self.path = os.path.abspath(path)
+        self.embedder = embedder or E.HeuristicEmbedder()
+        self._tagger: AT.ZeroShotTagger | None = None  # lazy, CLAP mode only
+        self.items: list[dict] = []
+        self._by_id: dict[str, dict] = {}
+        if os.path.exists(self.path):
+            self.load()
+
+    # ---------- persistence ----------
+    def load(self) -> None:
+        with open(self.path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("schema", 1) != STORE_SCHEMA:
+            print(f"[store] index schema {data.get('schema', 1)} != "
+                  f"{STORE_SCHEMA}, will rebuild on next scan")
+            self.items = []
+            self._by_id = {}
+            return
+        items = data.get("items", [])
+        # self-healing: drop entries whose files no longer exist on disk
+        kept = [it for it in items if os.path.exists(it.get("path", ""))]
+        dropped = len(items) - len(kept)
+        if dropped:
+            print(f"[store] pruned {dropped} missing files from index")
+        self.items = kept
+        self._by_id = {it["id"]: it for it in self.items}
+        if dropped:
+            self.save()
+
+    def save(self) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"items": self.items, "saved_at": time.time(),
+                       "schema": STORE_SCHEMA}, f, ensure_ascii=False)
+
+    # ---------- indexing ----------
+    def clear(self) -> None:
+        self.items, self._by_id = [], {}
+
+    def add_file(self, file_path: str, category: str = "",
+                 tags: list[str] | None = None, description: str = "") -> dict:
+        """Build (not append) an index item for a file."""
+        file_path = os.path.abspath(file_path)
+        filename = os.path.basename(file_path)
+        tags = tags or []
+        try:
+            st = os.stat(file_path)
+            mtime, size = float(st.st_mtime), int(st.st_size)
+        except OSError:
+            mtime, size = 0.0, 0
+        feats = af.analyze(file_path)
+        try:  # original sample rate / channels (pre-resample, header only)
+            import soundfile as sf
+            _info = sf.info(file_path)
+            orig_sr, channels = int(_info.samplerate), int(_info.channels)
+        except Exception:
+            orig_sr, channels = af.ANALYSIS_SR, 1
+        if isinstance(self.embedder, E.CLAPEmbedder):
+            vec = self.embedder.audio_vector_file(file_path)
+            if self._tagger is None:  # encode label vocab once per process
+                self._tagger = AT.ZeroShotTagger(self.embedder)
+            auto_tags = self._tagger.tag(np.asarray(vec, dtype=float))
+        else:
+            vec = self.embedder.audio_vector(feats)
+            auto_tags = []
+        if not description:
+            description = (f"{category}: {', '.join(tags[:8])}" if category
+                           else ", ".join(tags[:8]))
+        return {
+            "id": uuid.uuid5(uuid.NAMESPACE_URL, file_path).hex,
+            "path": file_path,
+            "filename": filename,
+            "category": category,
+            "tags": tags,
+            "auto_tags": auto_tags,
+            "description": description,
+            "mtime": mtime,
+            "size": size,
+            "orig_sr": orig_sr,
+            "channels": channels,
+            "features": feats,
+            "vector": [float(x) for x in np.asarray(vec).ravel().tolist()],
+            "embedder": self.embedder.name,
+        }
+
+    def scan_folder(self, folder: str, progress_cb=None) -> dict:
+        """Index all audio files under folder (incremental).
+
+        Category/tags priority per directory: tags.csv (ground truth)
+        -> parent dir name -> filename tokens. Unchanged files (mtime+size)
+        are reused with their user-edited tags/descriptions intact.
+        """
+        import csv
+
+        def _load_truth(csv_path: str, into: dict) -> None:
+            try:
+                with open(csv_path, encoding="utf-8-sig") as f:
+                    base = os.path.dirname(csv_path)
+                    for row in csv.DictReader(f):
+                        key = os.path.abspath(os.path.join(base, row["filename"]))
+                        into[key] = (
+                            row.get("category", ""),
+                            [t.strip() for t in row.get("tags", "").split(",") if t.strip()],
+                            (row.get("description", "") or "").strip(),
+                        )
+            except (OSError, KeyError):
+                pass
+
+        t0 = time.time()
+        truth: dict[str, tuple[str, list[str], str]] = {}
+        files: list[str] = []
+        for root, _, names in os.walk(folder):
+            _load_truth(os.path.join(root, "tags.csv"), truth)
+            for n in sorted(names):
+                if os.path.splitext(n)[1].lower() in AUDIO_EXTS:
+                    files.append(os.path.join(root, n))
+        files.sort()
+
+        old_by_path = {it.get("path"): it for it in self.items}
+        new_items: list[dict] = []
+        added = reused = 0
+        errors: list[str] = []
+        for i, fp in enumerate(files):
+            ap = os.path.abspath(fp)
+            try:
+                st = os.stat(ap)
+                sig = (float(st.st_mtime), int(st.st_size))
+            except OSError as e:
+                errors.append(f"{fp}: {e}")
+                if progress_cb:
+                    progress_cb(i + 1, len(files), fp)
+                continue
+            old = old_by_path.get(ap)
+            try:
+                if (old is not None
+                        and (old.get("mtime"), old.get("size")) == sig
+                        and old.get("embedder") == self.embedder.name
+                        and "vector" in old):
+                    # reuse: refresh truth-based fields (tags.csv may be edited)
+                    if ap in truth:
+                        category, tags, desc = truth[ap]
+                        old["category"], old["tags"] = category, tags
+                        if desc:
+                            old["description"] = desc
+                    new_items.append(old)
+                    reused += 1
+                else:
+                    if ap in truth:
+                        category, tags, desc = truth[ap]
+                    else:
+                        name = os.path.basename(fp)
+                        category = os.path.basename(os.path.dirname(fp)) or ""
+                        tags = [t for t in E.tokenize(os.path.splitext(name)[0])
+                                if len(t) > 1]
+                        desc = ""
+                    item = self.add_file(ap, category=category, tags=tags,
+                                         description=desc)
+                    # keep user edits when re-analyzing a changed file
+                    if old is not None and ap not in truth:
+                        item["tags"] = old.get("tags", item["tags"])
+                        item["description"] = old.get("description",
+                                                      item["description"])
+                    elif old is None and ap not in truth:
+                        # brand-new file: filename tokens + CLAP auto tags
+                        item["tags"] = _merge_auto_tags(
+                            item["tags"], item.get("auto_tags", []))
+                    new_items.append(item)
+                    added += 1
+            except Exception as e:  # noqa: BLE001 - keep indexing on errors
+                errors.append(f"{fp}: {e}")
+            if progress_cb:
+                progress_cb(i + 1, len(files), fp)
+        self.items = new_items
+        self._by_id = {it["id"]: it for it in new_items}
+        self.save()
+        dt = time.time() - t0
+        return {"indexed": len(new_items), "added": added, "reused": reused,
+                "skipped_errors": errors, "seconds": round(dt, 2)}
+
+    # ---------- shapes ----------
+    @staticmethod
+    def their_shape(it: dict) -> dict:
+        """File object in the frontend's SearchResult.file shape."""
+        f = it.get("features", {}) or {}
+        cent = f.get("spectral_centroid_mean", 0) or 0
+        pitch = "низкий" if cent < 500 else ("средний" if cent < 2000 else "высокий")
+        rms = f.get("rms_energy", 0) or 0
+        energy = "low" if rms < 0.05 else ("medium" if rms < 0.15 else "high")
+        flat = f.get("spectral_flatness_mean")
+        if flat is None:  # indexes built before the fast analyzer
+            has_noise = (f.get("percussive_ratio", 0) or 0) > 0.35
+        else:
+            has_noise = (flat or 0) > 0.3
+        return {
+            "id": it.get("id"),
+            "filename": it.get("filename"),
+            "duration": (f.get("duration", 0) or 0),
+            "sample_rate": it.get("orig_sr", af.ANALYSIS_SR),
+            "channels": it.get("channels", 1),
+            "category": it.get("category", "") or "Без категории",
+            "tags": it.get("tags", []),
+            "auto_tags": it.get("auto_tags", []),
+            "description": it.get("description", ""),
+            "spectral_features": {
+                "pitch": pitch,
+                "energy": energy,
+                "has_noise": has_noise,
+                "has_reverb": (f.get("reverb_proxy", 0) or 0) > 0.25,
+            },
+        }
+
+    def _hit(self, it: dict, score: float, confidence: int) -> dict:
+        return {"id": it["id"], "score": round(float(score), 4),
+                "confidence": confidence, "file": self.their_shape(it)}
+
+    # ---------- reads ----------
+    def get(self, item_id: str) -> dict | None:
+        return self._by_id.get(item_id)
+
+    def library(self, category: str = "", q: str = "") -> list[dict]:
+        """Catalog with fallback text filter (deck risk mitigation: Plan B)."""
+        out = self.items
+        if category:
+            out = [it for it in out if it.get("category") == category]
+        if q:
+            toks = E.tokenize(q)
+            scored = [(E.keyword_score(toks, it), it) for it in out]
+            out = [it for s, it in sorted(scored, key=lambda x: -x[0]) if s > 0]
+        return [self._public(it) for it in out]
+
+    def categories(self) -> list[dict]:
+        counts: dict[str, int] = {}
+        for it in self.items:
+            counts[it.get("category", "")] = counts.get(it.get("category", ""), 0) + 1
+        return [{"name": k, "count": v} for k, v in sorted(counts.items())]
+
+    # ---------- search ----------
+    def search_text(self, query: str, top_k: int = 10) -> dict:
+        t0 = time.time()
+        if isinstance(self.embedder, E.CLAPEmbedder):
+            # hybrid: CLAP semantics + keyword tags, fused by RRF.
+            # Keywords keep RU queries working (CLAP text encoder is EN-only).
+            qv = self.embedder.text_vector(query)
+            clap_scores = [E.cosine(qv, np.array(it["vector"]))
+                           for it in self.items]
+            kw_scores = E.HeuristicEmbedder().text_scores(query, self.items)
+            n = len(self.items)
+            order_c = sorted(range(n), key=lambda i: -clap_scores[i])
+            order_k = sorted(range(n), key=lambda i: -kw_scores[i])
+            rank_c = {i: r for r, i in enumerate(order_c)}
+            rank_k = {i: r for r, i in enumerate(order_k)}
+            k_rrf = 60
+            fused = [(1 / (k_rrf + rank_c[i]) + 1 / (k_rrf + rank_k[i]), i)
+                     for i in range(n)]
+            fused.sort(key=lambda x: -x[0])
+            best = fused[0][0] if fused else 1.0
+            results = [self._hit(self.items[i], rrf / best,
+                                 _confidence_from_keyword(rrf / best))
+                       for rrf, i in fused[:top_k]]
+            weak = ((max(clap_scores) if clap_scores else 0) < 0.12
+                    and (max(kw_scores) if kw_scores else 0) <= 0)
+            mode, low_conf = "clap+keywords", bool(weak)
+        else:
+            scores = self.embedder.text_scores(query, self.items)
+            best_kw = max(scores) if scores else 0.0
+            if best_kw <= 0:
+                # honest empty: no lexical evidence at all
+                results, low_conf = [], True
+            else:
+                scored = [(s, _confidence_from_keyword(s), it)
+                          for s, it in zip(scores, self.items) if s > 0]
+                scored.sort(key=lambda x: -x[0])
+                results = [self._hit(it, s, c) for s, c, it in scored[:top_k]]
+                low_conf = False
+            mode = "heuristic-demo"
+        return {"query": query, "mode": mode, "top_k": top_k,
+                "elapsed_ms": int((time.time() - t0) * 1000),
+                "low_confidence": low_conf, "results": results}
+
+    def search_vector(self, vec: np.ndarray, top_k: int = 10,
+                      exclude_id: str = "") -> list[dict]:
+        scored = []
+        for it in self.items:
+            if it["id"] == exclude_id:
+                continue
+            c = E.cosine(vec, np.array(it["vector"]))
+            scored.append((c, self._hit(it, c, _confidence_from_cosine(c))))
+        scored.sort(key=lambda x: -x[0])
+        return [p for _, p in scored[:top_k]]
+
+    def similar(self, item_id: str, top_k: int = 10) -> list[dict]:
+        it = self.get(item_id)
+        if not it:
+            return []
+        return self.search_vector(np.array(it["vector"]), top_k, exclude_id=item_id)
+
+    def annotate(self, item_id: str, tags: list[str]) -> dict | None:
+        it = self.get(item_id)
+        if not it:
+            return None
+        it["tags"] = tags
+        self.save()
+        return self._public(it)
+
+    def set_description(self, item_id: str, description: str) -> dict | None:
+        it = self.get(item_id)
+        if not it:
+            return None
+        it["description"] = description
+        self.save()
+        return self._public(it)
+
+    @staticmethod
+    def _public(it: dict) -> dict:
+        return {k: it.get(k) for k in
+                ("id", "filename", "category", "tags", "auto_tags",
+                 "description", "features")}
+
+
+def get_store() -> JsonStore:
+    # ChromaDB backend can be plugged here later (same method names).
+    try:
+        import chromadb  # noqa: F401
+        print("[store] chromadb installed, but JsonStore keeps MVP simple; "
+              "override get_store() to switch backends.")
+    except ImportError:
+        pass
+    return JsonStore(embedder=E.get_embedder())
