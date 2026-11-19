@@ -137,6 +137,21 @@ def _match(t: str, h: str) -> bool:
     return False
 
 
+def expand_query(query_tokens: list[str]) -> set[str]:
+    """Перевод запроса в ключи категорий: «разбилось стекло» -> {glass_breaking}.
+
+    Работает без tags.csv: даже если в индексе только английские имена файлов,
+    русский запрос находит нужный класс.
+    """
+    keys: set[str] = set()
+    for tok in query_tokens:
+        keys |= labels_ru.keys_for_token_prefix(tok)
+        # EN-слово запроса -> RU -> ключи
+        for ru in EN_RU.get(_stem(tok), ()):
+            keys |= labels_ru.keys_for_token_prefix(ru)
+    return keys
+
+
 def keyword_score(query_tokens: list[str], item: dict) -> float:
     """Lexical match of query against category synonyms + tags + filename."""
     hay: set[str] = set()
@@ -162,7 +177,12 @@ def keyword_score(query_tokens: list[str], item: dict) -> float:
         return 0.0
     stems = [_stem(t) for t in query_tokens]
     hits = sum(1 for t in stems if any(_match(t, h) for h in hay))
-    return hits / len(query_tokens)
+    score = hits / len(query_tokens)
+    # стадия «перевод запроса в категорию»: если класс угадан (в т.ч. по
+    # английскому имени файла при отсутствии tags.csv) — это сильный сигнал
+    if cat_key in expand_query(query_tokens):
+        score = max(score, 0.75)
+    return score
 
 
 def mfcc_vector(features: dict) -> np.ndarray:

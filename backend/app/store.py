@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import uuid
 
@@ -235,9 +236,13 @@ class JsonStore:
                         category, tags, desc = truth[ap]
                     else:
                         name = os.path.basename(fp)
-                        category = os.path.basename(os.path.dirname(fp)) or ""
-                        tags = [t for t in E.tokenize(os.path.splitext(name)[0])
-                                if len(t) > 1]
+                        parent = os.path.basename(os.path.dirname(fp)) or ""
+                        # папка может называться с большой буквы или по-русски:
+                        # приводим к ключу словаря, чтобы нашлись русские метки
+                        cat_key = labels_ru.normalize_key(parent)
+                        category = (cat_key if labels_ru.is_known(cat_key)
+                                    else parent)
+                        tags = self._tags_from_filename(name)
                         desc = ""
                     item = self.add_file(ap, category=category,
                                          tags=self._tags_for(category, tags),
@@ -262,8 +267,16 @@ class JsonStore:
         self._by_id = {it["id"]: it for it in new_items}
         self.save()
         dt = time.time() - t0
+        # «слепые» файлы: о звуке нет ни одного слова (имя вида 1-20133-A-39.wav
+        # и нет tags.csv). Честно сообщаем в UI, что их найдёт только звук/теги.
+        blind = [it["filename"] for it in new_items
+                 if not it.get("tags") or (
+                     len(it.get("tags", [])) <= 1
+                     and not labels_ru.is_known(it.get("category", "")))]
         return {"indexed": len(new_items), "added": added, "reused": reused,
-                "skipped_errors": errors, "seconds": round(dt, 2)}
+                "skipped_errors": errors, "seconds": round(dt, 2),
+                "without_tags": len(blind),
+                "without_tags_examples": blind[:5]}
 
     # ---------- tags ----------
     @staticmethod
@@ -271,6 +284,34 @@ class JsonStore:
         head = labels_ru.ru_name(category) if category else ""
         tail = ", ".join(tags[:8])
         return f"{head}: {tail}" if head and tail else (tail or head)
+
+    @staticmethod
+    def _tags_from_filename(name: str) -> list[str]:
+        """Теги из имени файла: англ. слова + русские метки категории.
+
+        `glass_breaking_01.wav` -> [glass, breaking, разбитое стекло, стекло, ...]
+        Работает и без tags.csv, и с русскими именами файлов.
+        """
+        stem = os.path.splitext(name)[0]
+        toks = [t for t in E.tokenize(stem) if len(t) > 1 and not t.isdigit()]
+        out = list(toks)
+        # голосуем: сколько слов имени указывают на каждую категорию
+        # («капли воды» -> water_drops 2 голоса, «капли» -> rain 1 голос)
+        votes: dict[str, int] = {}
+        for tok in toks:
+            for key in labels_ru.keys_for_token_prefix(tok):
+                votes[key] = votes.get(key, 0) + 1
+        if votes:
+            best = max(votes.values())
+            winners = [k for k, v in votes.items() if v == best]
+            for key in sorted(winners):
+                out = _merge_tags(out, labels_ru.ru_tags(key, limit=4))
+        # локаль папки в имени файла (asr/glass_breaking_01.wav)
+        norm = re.sub(r"[^a-zа-яё_]+", "_", stem.lower())
+        for key in labels_ru.RU_LABELS:
+            if re.search(rf"(^|_){re.escape(key.lstrip('_'))}(_|$)", norm):
+                out = _merge_tags(out, labels_ru.ru_tags(key))
+        return out
 
     def _tags_for(self, category: str, csv_tags: list[str],
                   old: dict | None = None) -> list[str]:

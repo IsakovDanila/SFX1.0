@@ -73,7 +73,43 @@ def main() -> int:
     check("ручные теги живы после рескана",
           {"мой", "тег", "проверка"} <= set(tags_after), str(tags_after[:6]))
 
-    # 5. category_ru отдаётся фронту
+    # 5. БЕЗ tags.csv: имя файла и имя папки дают русские теги
+    import shutil
+    scen = tempfile.mkdtemp()
+    os.makedirs(os.path.join(scen, "Glass_Breaking"), exist_ok=True)
+    os.makedirs(os.path.join(scen, "thunder"), exist_ok=True)
+    src_glass = next(x["path"] for x in store.items if x["category"] == "glass_breaking")
+    src_thun = next(x["path"] for x in store.items if x["category"] == "thunderstorm")
+    # папка с большой буквы + мусорное имя файла
+    shutil.copy(src_glass, os.path.join(scen, "Glass_Breaking", "1-20133-A-39.wav"))
+    # осмысленное английское имя в плоской папке
+    shutil.copy(src_thun, os.path.join(scen, "thunder", "thunderstorm_02.wav"))
+
+    s_no_csv = JsonStore(path=os.path.join(scen, "i.json"),
+                         embedder=E.HeuristicEmbedder())
+    s_no_csv.scan_folder(scen)
+    check("без CSV: файлов найдено", len(s_no_csv.items) == 2, str(len(s_no_csv.items)))
+
+    by_name = {x["filename"]: x for x in s_no_csv.items}
+    g = by_name["1-20133-A-39.wav"]
+    check("без CSV: папка 'Glass_Breaking' -> русские теги",
+          "стекло" in " ".join(g["tags"]), str(g["tags"][:4]))
+    check("без CSV: папка в нижнем регистре не теряется",
+          g["category"] == "glass_breaking", g["category"])
+    res = s_no_csv.search_text("разбилось стекло", 5)["results"]
+    check("без CSV: «разбилось стекло» находит файл",
+          any(r["file"]["filename"] == "1-20133-A-39.wav" for r in res),
+          str([r["file"]["filename"] for r in res[:2]]))
+    res2 = s_no_csv.search_text("гроза", 5)["results"]
+    check("без CSV: «гроза» находит thunderstorm_02.wav",
+          any(r["file"]["filename"] == "thunderstorm_02.wav" for r in res2),
+          str([r["file"]["filename"] for r in res2[:2]]))
+
+    # 6. английский запрос тоже работает (обратный перевод)
+    res3 = s_no_csv.search_text("glass breaking", 5)["results"]
+    check("EN-запрос при русских тегах", len(res3) > 0, str(len(res3)))
+
+    # 7. category_ru отдаётся фронту
     shape = JsonStore.their_shape(store.items[0])
     check("their_shape отдаёт category_ru", bool(shape.get("category_ru")),
           str(shape.get("category_ru")))

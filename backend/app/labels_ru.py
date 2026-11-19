@@ -198,7 +198,10 @@ def ru_tags(key: str, limit: int = 6) -> list[str]:
     entry = RU_LABELS.get(normalize_key(key))
     if entry:
         return entry["tags"][:limit]
-    return [w for w in (key or "").replace("-", "_").split("_") if w][:limit]
+    # неизвестная категория: оставляем осмысленные слова ключа/папки
+    words = [w for w in (key or "").replace("-", "_").split("_")
+             if len(w) > 2 and not w.isdigit()]
+    return words[:limit]
 
 
 def is_known(key: str) -> bool:
@@ -207,6 +210,59 @@ def is_known(key: str) -> bool:
 
 def all_keys() -> list[str]:
     return sorted(RU_LABELS)
+
+
+# ---- обратный индекс: русское слово -> ключи категорий -------------------
+# Нужен, когда tags.csv нет и в индексе есть только английские слова
+# (`glass_breaking_01.wav`). Тогда «разбилось стекло» всё равно найдёт файл:
+# запрос переводится в ключи категорий ещё до сравнения с тегами.
+def _stem(tok: str) -> str:
+    """Локальная копия стеммера из embeddings.py (без циклического импорта)."""
+    if len(tok) > 4 and tok.endswith("es"):
+        return tok[:-2]
+    if len(tok) > 3 and tok.endswith("s") and not tok.endswith("ss"):
+        return tok[:-1]
+    if len(tok) > 3 and tok[-1] in ("и", "ы"):
+        return tok[:-1]
+    return tok
+
+
+_WORD_TO_KEYS: dict[str, set[str]] = {}
+
+
+def _build_reverse() -> None:
+    for key, entry in RU_LABELS.items():
+        words = [entry["ru"], *entry["tags"]]
+        words += key.split("_")
+        for w in words:
+            for tok in (w or "").lower().replace("-", " ").split():
+                if len(tok) > 1:
+                    _WORD_TO_KEYS.setdefault(_stem(tok), set()).add(key)
+
+
+_build_reverse()
+
+
+def keys_for_word(word: str) -> set[str]:
+    """Ключи категорий, к которым относится русское (или английское) слово."""
+    return set(_WORD_TO_KEYS.get(_stem((word or "").lower()), set()))
+
+
+def keys_for_token_prefix(word: str) -> set[str]:
+    """Как keys_for_word, но с толерантностью к склонениям.
+
+    «стекла» -> «стекло», «грозы» -> «гроза»: сравниваем 4-буквенные префиксы,
+    тем же правилом, что и `_match()` в embeddings.py.
+    """
+    w = (word or "").lower()
+    direct = keys_for_word(w)
+    if direct or len(w) < 4:
+        return direct
+    out: set[str] = set()
+    for known, keys in _WORD_TO_KEYS.items():
+        if len(known) >= 4 and (known.startswith(w[:4]) or w.startswith(known[:4])):
+            out |= keys
+    return out
 
 
 # Дополнительные русские синонимы для уже существующих 8 категорий: они
