@@ -101,7 +101,7 @@ export default function SearchView() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2"><p className="text-white text-sm font-medium truncate">{r.file.filename}</p><span className="text-[10px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">{r.file.category}</span></div>
                       <p className="text-gray-400 text-xs mt-1">{r.file.description}</p>
-                      <div className="flex items-center gap-3 mt-2"><div className="flex gap-1">{r.file.tags.slice(0, 4).map(t => (<span key={t} className="px-1.5 py-0.5 bg-violet-900/40 text-violet-300 rounded text-[10px]">{t}</span>))}</div><span className="text-gray-500 text-[10px]">{r.file.duration.toFixed(1)}s</span></div>
+                      <div className="flex items-center gap-3 mt-2"><span className="text-gray-500 text-[10px]">{r.file.duration.toFixed(1)}s</span></div>
                     </div>
                     <div className="flex-shrink-0 text-right"><div className="text-lg font-bold text-violet-400">{(r.score * 100).toFixed(0)}%</div><div className="text-[10px] text-gray-500">match</div></div>
                   </div>
