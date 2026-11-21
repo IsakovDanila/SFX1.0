@@ -6,8 +6,6 @@ import Header from './components/Header';
 import ClapStatusBanner from './components/ClapStatusBanner';
 import AudioCatalog from './components/AudioCatalog';
 import SearchView from './components/SearchView';
-import AnnotationMode from './components/AnnotationMode';
-import EvaluationMode from './components/EvaluationMode';
 
 export default function App() {
   const { setFiles, currentView } = useStore();
@@ -49,10 +47,6 @@ export default function App() {
         return <AudioCatalog />;
       case 'search':
         return <SearchView />;
-      case 'annotate':
-        return <AnnotationMode />;
-      case 'evaluate':
-        return <EvaluationMode />;
       default:
         return <AudioCatalog />;
     }

@@ -34,7 +34,7 @@ INDEX_PATH = os.getenv("SFX_INDEX_PATH", os.path.join(
 
 AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".oga", ".m4a", ".aif", ".aiff"}
 
-STORE_SCHEMA = 3  # bump to force a full rescan after feature changes
+STORE_SCHEMA = 4  # bump to force a full rescan after feature changes
                   # 3 = русские теги категорий (labels_ru)
 
 
@@ -351,7 +351,10 @@ class JsonStore:
         """
         manual = list(old.get("tags", [])) if old else []
         out = _merge_tags(manual, csv_tags or [])
-        out = _merge_tags(out, labels_ru.ru_tags(category))
+        # метки добавляем ТОЛЬКО для известных категорий: иначе в теги
+        # попадало имя папки («Моя музыка», «demo_sfx») — мусор в разметке
+        if labels_ru.is_known(category):
+            out = _merge_tags(out, labels_ru.ru_tags(category))
         return out
 
     # ---------- shapes ----------
@@ -448,8 +451,18 @@ class JsonStore:
                                  self._confidence_clap(clap_scores[i],
                                                        rrf / best))
                        for rrf, i in fused[:top_k]]
-            weak = ((max(clap_scores) if clap_scores else 0) < 0.12
-                    and (max(kw_scores) if kw_scores else 0) <= 0)
+            best_cos = max(clap_scores) if clap_scores else 0.0
+            best_kw = max(kw_scores) if kw_scores else 0.0
+            # порог: CLAP не умеет говорить «не знаю», поэтому без порога на
+            # любой бред возвращались 10 файлов с процентами («чёрный ящик»)
+            min_cos = float(os.getenv("SFX_CLAP_MIN_COS", "0.18"))
+            weak = best_cos < max(min_cos, 0.12) and best_kw <= 0
+            if weak and os.getenv("SFX_CLAP_HONEST_EMPTY", "1") == "1":
+                return {"query": query, "mode": "clap+keywords", "top_k": top_k,
+                        "elapsed_ms": int((time.time() - t0) * 1000),
+                        "low_confidence": True, "results": [],
+                        "hint": "Ничего похожего. Попробуйте другой запрос "
+                                "(CLAP понимает английский) или добавьте теги."}
             mode, low_conf = "clap+keywords", bool(weak)
         else:
             scores = self.embedder.text_scores(query, self.items)

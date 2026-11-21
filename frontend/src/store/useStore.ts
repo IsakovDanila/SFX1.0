@@ -30,7 +30,7 @@ export interface SearchResult {
   score: number;
 }
 
-export type ViewMode = 'catalog' | 'search' | 'annotate' | 'evaluate';
+export type ViewMode = 'catalog' | 'search';
 
 interface AppState {
   files: AudioFile[];

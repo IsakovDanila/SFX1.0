@@ -1,11 +1,9 @@
-import { Search, Music, Tags, Star, FolderOpen } from 'lucide-react';
+import { Search, Music, FolderOpen } from 'lucide-react';
 import { useStore, ViewMode } from '../store/useStore';
 
 const navItems: { view: ViewMode; label: string; icon: React.ReactNode }[] = [
   { view: 'catalog', label: 'Каталог', icon: <FolderOpen size={18} /> },
   { view: 'search', label: 'Поиск', icon: <Search size={18} /> },
-  { view: 'annotate', label: 'Разметка', icon: <Tags size={18} /> },
-  { view: 'evaluate', label: 'Оценка', icon: <Star size={18} /> },
 ];
 
 export default function Header() {
