@@ -33,13 +33,11 @@ export default function AudioCatalog() {
         </div>
         <div className="flex-1 overflow-auto rounded-xl border border-gray-700">
           <table className="w-full text-sm">
-            <thead className="bg-gray-800/80 sticky top-0"><tr className="text-gray-400 text-xs"><th className="text-left px-4 py-3 font-medium">Файл</th><th className="text-left px-4 py-3 font-medium">Категория</th><th className="text-left px-4 py-3 font-medium">Длит.</th><th className="text-left px-4 py-3 font-medium">Теги</th><th className="text-left px-4 py-3 font-medium">Рейтинг</th></tr></thead>
+            <thead className="bg-gray-800/80 sticky top-0"><tr className="text-gray-400 text-xs"><th className="text-left px-4 py-3 font-medium">Файл</th><th className="text-left px-4 py-3 font-medium">Категория</th><th className="text-left px-4 py-3 font-medium">Длит.</th></tr></thead>
             <tbody>{filtered.map(f => (<tr key={f.id} onClick={() => setSelectedFile(f)} className={`border-t border-gray-800 cursor-pointer transition-colors ${selectedFile?.id === f.id ? 'bg-violet-900/30' : 'hover:bg-gray-800/50'}`}>
               <td className="px-4 py-3"><div className="flex items-center gap-2"><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${selectedFile?.id === f.id ? 'bg-violet-600' : 'bg-gray-700'}`}>{selectedFile?.id === f.id ? <Pause size={12} className="text-white" /> : <Play size={12} className="text-gray-300" />}</div><div><p className="text-white text-xs font-medium truncate max-w-[200px]">{f.filename}</p><p className="text-gray-500 text-[10px]">{f.sampleRate}Hz • {f.channels}ch</p></div></div></td>
               <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-700 rounded text-gray-300 text-[10px]">{f.category}</span></td>
               <td className="px-4 py-3 text-gray-400 text-xs font-mono">{fmtDur(f.duration)}</td>
-              <td className="px-4 py-3"><div className="flex gap-1 flex-wrap max-w-[150px]">{f.tags.slice(0, 3).map(t => (<span key={t} className="px-1.5 py-0.5 bg-violet-900/50 text-violet-300 rounded text-[10px]">{t}</span>))}{f.tags.length > 3 && <span className="text-gray-500 text-[10px]">+{f.tags.length - 3}</span>}</div></td>
-              <td className="px-4 py-3"><div className="flex gap-0.5">{[1,2,3,4,5].map(s => (<span key={s} className={`text-xs ${s <= (f.rating || 0) ? 'text-yellow-400' : 'text-gray-600'}`}>★</span>))}</div></td>
             </tr>))}</tbody>
           </table>
         </div>
