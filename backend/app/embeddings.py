@@ -291,9 +291,31 @@ class CLAPEmbedder:
             return y
         start = loud[0] * win
         end = min(y.size, (loud[-1] + 1) * win)
-        # небольшой запас по 50 мс, чтобы не срезать атаку
+        # запас по 50 мс, чтобы не срезать атаку и хвост реверба
         pad = int(self.CLAP_SR * 0.05)
-        return y[max(0, start - pad): min(y.size, end + pad)]
+        start = max(0, start - pad)
+        end = min(y.size, end + pad)
+        trimmed = y[start:end]
+        # CLAP заполняет окно 10 с повтором сигнала (repeatpad) и считает
+        # n_repeat = int(480000 / len(y)). Файл ровно 5 с = 240000 сэмплов
+        # даёт 2 повтора без нулей, но запас +50 мс добавляет сэмплы, и
+        # 240001 сэмпл даёт n_repeat = 1: ПОЛОВИНА окна уходит в нули.
+        # Поэтому подрезаем результат до 1/N окна, если перебор меньше
+        # одного сэмпла на повтор: так 5-секундные файлы снова получают
+        # целое число повторов.
+        total = trimmed.size
+        if total > 1:
+            n_win = int(round(self.CLAP_SR * self.MAX_SECONDS))
+            # round(), а не //: для 240001 сэмпла CLAP сам посчитает
+            # int(480000/240001) = 1 повтор, но «идеально» их 2 — и надо
+            # подрезать до 240000, чтобы повторов стало ровно 2.
+            reps = max(1, int(round(n_win / total)))
+            per = n_win // reps
+            # подрезаем, только если разница с идеальным повтором —
+            # это лишний запас (не более 0.5% длины), а не суть звука
+            if per >= 1 and 0 < total - per <= max(1, total // 200):
+                trimmed = trimmed[:per]
+        return trimmed
 
     def _load_for_clap(self, path: str) -> np.ndarray:
         import librosa
