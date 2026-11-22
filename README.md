@@ -1,4 +1,4 @@
-# SFX Smart Search — MVP v0.1 (слияние готово ✅)
+# SFX Smart Search — MVP v0.1.1 (слияние готово ✅)
 
 Локальный семантический поиск по библиотеке звуковых эффектов.
 **Фронтенд команды** (React + TS + Tailwind + Zustand + WaveSurfer v8)
