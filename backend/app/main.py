@@ -14,7 +14,10 @@ Run (from backend/):
 """
 from __future__ import annotations
 
+import atexit
 import os
+import signal
+import sys
 import tempfile
 
 import numpy as np
@@ -44,6 +47,37 @@ scan_state: dict = {"status": "idle", "total": 0, "done": 0, "current": "",
                     "result": None}
 
 
+def _register_index_cleanup() -> None:
+    """Стирать index.json при остановке бэкенда.
+
+    Векторы в индексе привязаны к текущему режиму (13-d эвристика против
+    512-d CLAP) и к mtime файлов. После остановки это кэш без ценности, а
+    при смене режима — источник ошибок размерности (cosine 13 vs 512 ->
+    HTTP 500). Поэтому по умолчанию удаляем; SFX_INDEX_KEEP=1 отключает.
+    """
+    def _cleanup(*_args) -> None:
+        if os.getenv("SFX_INDEX_KEEP") == "1":
+            return
+        try:
+            if os.path.exists(store.path):
+                os.unlink(store.path)
+                print(f"[store] index.json удалён при остановке: {store.path}",
+                      flush=True)
+        except OSError as e:  # noqa: BLE001 - не мешаем завершению процесса
+            print(f"[store] не удалось удалить индекс: {e}", flush=True)
+
+    atexit.register(_cleanup)
+    # SIGTERM: docker stop / kill. SIGINT обычно перехватывает uvicorn,
+    # поэтому дублируем через atexit.
+    for sig in (signal.SIGTERM,):
+        try:
+            prev = signal.getsignal(sig)
+            signal.signal(sig, lambda *a: (_cleanup(), prev(*a)
+                                           if callable(prev) else sys.exit(0)))
+        except (ValueError, OSError):
+            pass   # не главный поток — atexit хватит
+
+
 @app.on_event("startup")
 def _startup() -> None:
     """CLAP грузим в фоне: сервер должен отвечать сразу, а не через 5 минут.
@@ -51,6 +85,7 @@ def _startup() -> None:
     Когда модель готова, стор переключается на неё и переиндексирует
     библиотеку (у CLAP-векторов другая размерность).
     """
+    _register_index_cleanup()
     clap_runtime.RUNTIME.start()
     if not clap_runtime.ClapRuntime.enabled():
         return
@@ -255,12 +290,15 @@ def _vector_from_upload(content: bytes, suffix: str) -> np.ndarray:
 
 
 def _search_by_upload(content: bytes, suffix: str, top_k: int,
-                      query: str = "") -> list[dict] | dict:
-    vec = _vector_from_upload(content, suffix)
-    if query.strip():
-        # референс + описание: описание работает как уточнение к похожести
-        return store.search_audio_text(vec, query, top_k)
-    return store.search_vector(vec, top_k)
+                      query: str = "") -> list[dict]:
+    """Поиск по загруженному файлу. `query` намеренно не используется.
+
+    Складывание референса и описания ухудшало результат: при неточном
+    описании неверный файл поднимался выше правильного (вес текста 0.8
+    против 1.0 у звука). Параметр оставлен в сигнатуре, чтобы старый
+    фронтенд не получал 422.
+    """
+    return store.search_vector(_vector_from_upload(content, suffix), top_k)
 
 
 @app.post("/api/search/audio")
@@ -269,9 +307,8 @@ async def search_audio(file: UploadFile = File(...), n_results: int = 10,
     if not store.items:
         raise HTTPException(400, "Library is empty — scan a folder first")
     suffix = os.path.splitext(file.filename or "ref.wav")[1] or ".wav"
-    out = _search_by_upload(await file.read(), suffix,
-                            max(1, min(n_results, 50)), query)
-    return out if isinstance(out, dict) else {"results": out}
+    return {"results": _search_by_upload(await file.read(), suffix,
+                                         max(1, min(n_results, 50)), query)}
 
 
 @app.post("/api/search-by-audio")

@@ -20,10 +20,12 @@ export default function SearchView() {
     setIsSearching(true);
     setSearchError('');
     try {
-      // Референс + описание складываются: файл задаёт «похожесть»,
-      // текст уточняет её. Если заполнено только одно — работает одно.
+      // Референс и текст НЕ смешиваются. Измерено: если описание неточное,
+      // оно вытаскивает неверный файл выше правильного (текст весил 0.8
+      // против 1.0 у звука и перебивал его). Пока загружен референс —
+      // работает только он; текст при этом игнорируется.
       const res = referenceFile
-        ? await api.searchByAudio(referenceFile, 10, text)
+        ? await api.searchByAudio(referenceFile, 10)
         : await api.searchByText(text, 10);
       setSearchResults(res.map(r => ({
         file: toAudioFile(r.file),
@@ -78,7 +80,7 @@ export default function SearchView() {
             <input type="file" accept=".wav,.mp3,.ogg,.flac" onChange={(e) => e.target.files?.[0] && setReferenceFile(e.target.files[0])} className="hidden" />
           </label>
           {referenceFile && (<div className="flex items-center gap-2 px-3 py-1.5 bg-violet-900/50 border border-violet-600 rounded-lg text-xs text-violet-300"><Mic size={12} /><span className="max-w-[200px] truncate">{referenceFile.name}</span><button onClick={() => setReferenceFile(null)}><X size={12} /></button></div>)}
-          {referenceFile && searchQuery.trim() && (<span className="text-[11px] text-gray-500">референс + описание: найдёт похожее и сузит по тексту</span>)}
+          {referenceFile && searchQuery.trim() && (<span className="text-[11px] text-amber-400/80">текст не учитывается: пока загружен референс, поиск идёт только по звуку</span>)}
         </div>
       </div>
 
