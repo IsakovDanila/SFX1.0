@@ -393,17 +393,47 @@ class JsonStore:
             },
         }
 
-    def _confidence_clap(self, cos: float, fused: float) -> int:
-        """Уверенность для CLAP: калиброванный косинус, а не сырой RRF.
+    def _confidence_clap(self, cos: float, fused: float,
+                        kw: float = 0.0, margin: float = 1.0) -> int:
+        """Уверенность для CLAP-поиска.
 
-        Сырой RRF всегда даёт ~100% первому результату — на экране это
-        выглядело бы как «всегда уверен». Берём вероятность по косинусу
-        и мягко смешиваем с позицией в гибридном списке.
+        Три сигнала, а не один абсолютный косинус:
+          margin — отрыв по косинусу от следующего результата (0..1);
+          kw     — попадание по словам/русским тегам (0..1);
+          prob   — калиброванная вероятность по абсолютному косинусу.
+        Абсолютный косинус CLAP на шумных записях низкий даже у верного
+        файла (0.30-0.40), поэтому отрыв и слова весят больше него.
+
+        Почему margin: если топ-1 оторвался от второго на 0.05+, это
+        осмысленный ответ даже при косинусе 0.34. Если же весь список
+        идёт вплотную (0.34, 0.29, 0.29), честнее показать низкий процент.
         """
         prob = self.embedder.text_audio_prob(cos) if hasattr(
             self.embedder, "text_audio_prob") else (cos + 1) / 2
-        val = 0.75 * prob + 0.25 * min(1.0, max(0.0, fused))
+        margin = min(1.0, max(0.0, margin))
+        kw = min(1.0, max(0.0, kw))
+        fused = min(1.0, max(0.0, fused))
+        val = (0.40 * margin + 0.30 * kw + 0.20 * prob + 0.10 * fused)
         return int(np.clip(round(val * 100), 5, 99))
+
+    @staticmethod
+    def _margins(coss: list[float]) -> list[float]:
+        """Отрыв каждого результата от следующего в порядке убывания.
+
+        Нормируем на разброс всего списка: 1.0 — явный лидер,
+        0.0 — все косинусы почти одинаковые (нет уверенности).
+        """
+        if not coss:
+            return []
+        order = sorted(range(len(coss)), key=lambda i: -coss[i])
+        spread = max(coss) - min(coss)
+        out = [0.0] * len(coss)
+        for rank, i in enumerate(order):
+            nxt = coss[order[rank + 1]] if rank + 1 < len(order) else min(coss)
+            gap = coss[i] - nxt
+            # 2.0: отрыв в половину разброса — уже «явный лидер»
+            out[i] = min(1.0, 2.0 * gap / spread) if spread > 1e-6 else 0.0
+        return out
 
     def _hit(self, it: dict, score: float, confidence: int) -> dict:
         return {"id": it["id"], "score": round(float(score), 4),
@@ -450,10 +480,15 @@ class JsonStore:
                      for i in range(n)]
             fused.sort(key=lambda x: -x[0])
             best = fused[0][0] if fused else 1.0
-            results = [self._hit(self.items[i], rrf / best,
-                                 self._confidence_clap(clap_scores[i],
-                                                       rrf / best))
-                       for rrf, i in fused[:top_k]]
+            margins = self._margins(clap_scores)
+            confs = [self._confidence_clap(clap_scores[i], rrf / best,
+                                           kw_scores[i], margins[i])
+                     for rrf, i in fused[:top_k]]
+            # проценты не должны расти вниз по списку: иначе #3 с точным
+            # тегом выглядит «лучше» #2, хотя ранжирование поставило его ниже
+            confs = list(np.minimum.accumulate(confs))
+            results = [self._hit(self.items[i], c / 100.0, c)
+                       for c, (rrf, i) in zip(confs, fused[:top_k])]
             best_cos = max(clap_scores) if clap_scores else 0.0
             best_kw = max(kw_scores) if kw_scores else 0.0
             # порог: CLAP не умеет говорить «не знаю», поэтому без порога на
