@@ -102,9 +102,15 @@ class AnnotateRequest(BaseModel):
 @app.get("/api/health")
 def health():
     """Короткий контракт сохранён (status/embedder/indexed) + блок clap."""
-    return {"status": "ok", "embedder": store.embedder.name,
-            "indexed": len(store.items), "version": app.version,
-            "clap": clap_runtime.RUNTIME.status()}
+    health = {"status": "ok", "embedder": store.embedder.name,
+              "indexed": len(store.items), "version": app.version,
+              "clap": clap_runtime.RUNTIME.status()}
+    # диагностика: почему индекс пуст/отброшен и что сломалось при переиндексации
+    if getattr(store, "index_reset_reason", ""):
+        health["index_reset_reason"] = store.index_reset_reason
+    if getattr(store, "reindex_error", ""):
+        health["reindex_error"] = store.reindex_error
+    return health
 
 
 @app.get("/api/clap/status")
