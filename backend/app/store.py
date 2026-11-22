@@ -414,25 +414,66 @@ class JsonStore:
         kw = min(1.0, max(0.0, kw))
         fused = min(1.0, max(0.0, fused))
         val = (0.40 * margin + 0.30 * kw + 0.20 * prob + 0.10 * fused)
+        # Точное попадание в категорию (kw=0.85 приходит из keyword_score,
+        # когда запрос перевёлся в cat_key из tags.csv) — это факт, а не
+        # догадка. CLAP на шумных записях даёт низкий косинус, и без пола
+        # верный файл получал 70% рядом с «ничего не похоже».
+        if kw >= 0.85:
+            val = max(val, 0.85)
         return int(np.clip(round(val * 100), 5, 99))
 
     @staticmethod
-    def _margins(coss: list[float]) -> list[float]:
+    def _margins(coss: list[float], tie_eps: float = 0.005) -> list[float]:
         """Отрыв каждого результата от следующего в порядке убывания.
 
         Нормируем на разброс всего списка: 1.0 — явный лидер,
         0.0 — все косинусы почти одинаковые (нет уверенности).
+
+        Ничья (совпадение косинусов в пределах tie_eps) НЕ штрафуется:
+        для запроса «bells» оба файла church_bells дают одинаковый косинус,
+        и раньше оба получали margin=0, хотя оба верные. Топ-1 такой группы
+        получает полный вес, остальные — чуть меньший, чтобы список не
+        выглядел «всё главное».
         """
         if not coss:
             return []
         order = sorted(range(len(coss)), key=lambda i: -coss[i])
         spread = max(coss) - min(coss)
         out = [0.0] * len(coss)
+
+        # группируем подряд идущие почти равные косинусы
+        groups: list[list[int]] = []
+        for i in order:
+            if groups and abs(coss[groups[-1][0]] - coss[i]) <= tie_eps:
+                groups[-1].append(i)
+            else:
+                groups.append([i])
+
         for rank, i in enumerate(order):
-            nxt = coss[order[rank + 1]] if rank + 1 < len(order) else min(coss)
-            gap = coss[i] - nxt
-            # 2.0: отрыв в половину разброса — уже «явный лидер»
-            out[i] = min(1.0, 2.0 * gap / spread) if spread > 1e-6 else 0.0
+            if rank + 1 < len(order):
+                nxt = coss[order[rank + 1]]
+                gap = coss[i] - nxt
+            else:
+                gap = coss[i] - min(coss)
+            # Нормируем и на разброс, и на АБСОЛЮТНЫЙ отрыв: при крошечном
+            # разбросе (все косинусы 0.24, 0.239, ...) деление на spread
+            # превращало шум в «явного лидера». 0.03 косинуса — минимум,
+            # чтобы отрыв считался осмысленным.
+            if spread <= 1e-6:
+                out[i] = 0.0
+            else:
+                out[i] = min(1.0, 2.0 * gap / spread, gap / 0.03)
+
+        # Бонус лидеру только если он ОТДЕЛЁН от остальных: иначе при
+        # мусорном запросе (все косинусы равны, одна группа) получилась бы
+        # ложная уверенность. Проверяем отрыв от следующей группы.
+        if len(groups) > 1:
+            lead, rest = groups[0], groups[1]
+            drop = coss[lead[0]] - coss[rest[0]]
+            need = 0.15 * spread if spread > 1e-6 else 1.0
+            if drop >= need:
+                for pos, i in enumerate(lead):
+                    out[i] = max(out[i], 0.85 if pos == 0 else 0.75)
         return out
 
     def _hit(self, it: dict, score: float, confidence: int) -> dict:
