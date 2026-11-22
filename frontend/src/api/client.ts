@@ -78,6 +78,21 @@ export function toAudioFile(f: ApiFile): AudioFile {
   };
 }
 
+/** Понятный текст ошибки: сервер ответил ошибкой != сервер не запущен.
+ *  Раньше любой 500 показывался как «Бэкенд недоступен» и уводил в ложную
+ *  сторону — искать надо было не тот процесс. */
+async function describeFailure(response: Response, what: string): Promise<string> {
+  let detail = '';
+  try {
+    const body = await response.json();
+    detail = body?.detail ? String(body.detail) : '';
+  } catch {
+    try { detail = (await response.text()).slice(0, 200); } catch { /* ignore */ }
+  }
+  const base = `${what}: сервер ответил ${response.status}`;
+  return detail ? `${base} — ${detail}` : base;
+}
+
 export const api = {
   /**
    * Семантический поиск по текстовому описанию
@@ -89,7 +104,7 @@ export const api = {
       body: JSON.stringify({ query, n_results: nResults }),
     });
 
-    if (!response.ok) throw new Error(`Search failed: ${response.statusText}`);
+    if (!response.ok) throw new Error(await describeFailure(response, 'Поиск'));
 
     const data = await response.json();
     return data.results;
@@ -112,7 +127,7 @@ export const api = {
       body: formData,
     });
 
-    if (!response.ok) throw new Error(`Audio search failed: ${response.statusText}`);
+    if (!response.ok) throw new Error(await describeFailure(response, 'Поиск по референсу'));
 
     const data = await response.json();
     return data.results;

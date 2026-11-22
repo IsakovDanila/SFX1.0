@@ -52,7 +52,8 @@ st = make_store(StubCLAP([1, 0, 0, 0]))
 r = st.search_text("zzz-no-such-word", top_k=3)
 assert r["mode"] == "clap+keywords", r["mode"]
 assert r["results"][0]["file"]["filename"] == "explosion_big.wav", r["results"][0]
-assert r["results"][0]["score"] == 1.0, r["results"][0]["score"]
+# score теперь = confidence/100 (монотонная калиброванная шкала)
+assert r["results"][0]["confidence"] >= 70, r["results"][0]
 assert r["low_confidence"] is False, r
 print("1. hybrid semantic rank OK:", [(x["file"]["filename"], x["score"]) for x in r["results"]])
 
@@ -125,3 +126,26 @@ assert merged == ["meme01", "хлопки", "hands clapping", "music"], merged
 print("8. merge OK:", merged)
 
 print("\nALL HYBRID STUB TESTS PASSED")
+
+# 9. confidence: отрыв от следующего + слова, а не абсолютный косинус
+#    (реальный кейс: 'sound of broken glass', косинус топ-1 всего 0.34)
+def _mk(vec, fn, cat, tags):
+    return {"id": fn, "filename": fn, "category": cat, "tags": tags,
+            "description": "d", "features": {}, "duration": 1.0,
+            "sample_rate": 48000, "channels": 1, "vector": list(vec),
+            "path": f"/tmp/{fn}"}
+
+st = JsonStore(path="/tmp/stub_idx2.json", embedder=StubCLAP([1, 0, 0, 0]))
+st.items = [
+    _mk([0.34, 0.94, 0, 0], "glass_a.wav", "glass_breaking", ["разбитое стекло"]),
+    _mk([0.29, 0.957, 0, 0], "clap.wav", "clapping", []),
+    _mk([0.29, 0.957, 0, 0], "glass_b.wav", "glass_breaking", ["разбитое стекло"]),
+    _mk([0.29, 0.957, 0, 0], "vac.wav", "vacuum_cleaner", []),
+]
+st._by_id = {it["id"]: it for it in st.items}
+r = st.search_text("sound of broken glass", top_k=4)
+confs = [h["confidence"] for h in r["results"]]
+assert confs == sorted(confs, reverse=True), confs
+assert confs[0] >= 70, confs
+assert max(confs[1:]) <= 20, confs
+print("9. confidence по отрыву OK:", [int(c) for c in confs], "(было 42/27/26/24)")
