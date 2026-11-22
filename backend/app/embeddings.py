@@ -85,6 +85,10 @@ def _stem(tok: str) -> str:
     # RU plural-ish: шаги->шаг, взрывы->взрыв
     if len(tok) > 3 and tok[-1] in ("и", "ы"):
         return tok[:-1]
+    # RU genitive/plural ending "ев/ов": шагов->шаг, звуков->звук.
+    # Без этого «шагов» не совпадало с «шаг» (5 букв vs 3, префикс не помогал).
+    if len(tok) > 4 and tok[-2:] in ("ев", "ов"):
+        return tok[:-2]
     return tok
 
 
@@ -152,6 +156,24 @@ def expand_query(query_tokens: list[str]) -> set[str]:
     return keys
 
 
+# Служебные слова: «sound of a bells» не должно считаться промахом в 3/4
+# токена. Убираем ДО подсчёта, но НЕ трогаем expand_query — там они безвредны.
+STOPWORDS = {
+    "a", "an", "the", "of", "sound", "sounds", "some", "any", "and", "or",
+    "to", "in", "on", "at", "with", "for", "from", "by", "is", "it", "that",
+    "this", "my", "me", "please", "like", "similar", "kind", "type",
+    "звук", "звуки", "звука", "звуков", "шум", "шумы", "шума", "и", "в", "во",
+    "на", "с", "со", "для", "от", "по", "из", "что", "это", "как", "типа",
+    "похожий", "похоже", "похожие", "пожалуйста", "мне", "нужен", "нужно",
+}
+
+
+def content_tokens(tokens: list[str]) -> list[str]:
+    """Убрать служебные слова. Если остались только они — вернуть как было."""
+    out = [t for t in tokens if t not in STOPWORDS]
+    return out or list(tokens)
+
+
 def keyword_score(query_tokens: list[str], item: dict) -> float:
     """Lexical match of query against category synonyms + tags + filename."""
     hay: set[str] = set()
@@ -175,13 +197,16 @@ def keyword_score(query_tokens: list[str], item: dict) -> float:
             hay.update(extra)
     if not query_tokens:
         return 0.0
-    stems = [_stem(t) for t in query_tokens]
+    toks = content_tokens(query_tokens)
+    stems = [_stem(t) for t in toks]
     hits = sum(1 for t in stems if any(_match(t, h) for h in hay))
-    score = hits / len(query_tokens)
+    score = hits / len(toks)
     # стадия «перевод запроса в категорию»: если класс угадан (в т.ч. по
-    # английскому имени файла при отсутствии tags.csv) — это сильный сигнал
+    # английскому имени файла при отсутствии tags.csv) — это сильный сигнал.
+    # 0.85, а не 0.75: точное попадание в category из tags.csv — это ответ,
+    # а не догадка (запрос «bells» -> файлы church_bells).
     if cat_key in expand_query(query_tokens):
-        score = max(score, 0.75)
+        score = max(score, 0.85)
     return score
 
 
