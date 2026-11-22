@@ -49,6 +49,8 @@ export interface ClapStatus {
 export interface SearchResult {
   id: string;
   score: number;
+  /** Калиброванный процент совпадения с бэкенда (5..99). */
+  confidence?: number;
   file: ApiFile;
 }
 
@@ -94,13 +96,18 @@ export const api = {
   },
 
   /**
-   * Поиск по референсному аудиофайлу
+   * Поиск по референсному аудиофайлу.
+   * Если передан query — описание работает как уточнение к похожести
+   * («похоже на этот взрыв, но деревянный»).
    */
-  async searchByAudio(file: File, nResults = 10): Promise<SearchResult[]> {
+  async searchByAudio(file: File, nResults = 10, query = ''): Promise<SearchResult[]> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_URL}/api/search/audio?n_results=${nResults}`, {
+    const qs = new URLSearchParams({ n_results: String(nResults) });
+    if (query.trim()) qs.set('query', query.trim());
+
+    const response = await fetch(`${API_URL}/api/search/audio?${qs.toString()}`, {
       method: 'POST',
       body: formData,
     });

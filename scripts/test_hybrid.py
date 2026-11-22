@@ -63,12 +63,13 @@ top = r["results"][0]["file"]["filename"]
 assert top == "footstep_wood.wav", [(x["file"]["filename"], x["score"]) for x in r["results"]]
 print("2. hybrid RU-keyword rescue OK:", [(x["file"]["filename"], x["score"]) for x in r["results"]])
 
-# 3. hybrid weak: nothing anywhere -> flag set, ranked list still returned
+# 3. hybrid weak: nothing anywhere -> честная пустота вместо 3 подставных строк
 st = make_store(StubCLAP([0, 0, 0, 1]))  # orthogonal: ~zero cosine to all
 r = st.search_text("zzz-no-such-word", top_k=3)
 assert r["low_confidence"] is True, r
-assert len(r["results"]) == 3, r
-print("3. hybrid weak-flag OK: low_confidence=True, results kept (CLAP always ranks)")
+assert r["results"] == [], r
+print("3. hybrid honest-empty OK: low_confidence=True, results=[] "
+      "(раньше тест ждал 3 строки — рассинхрон с SFX_CLAP_HONEST_EMPTY)")
 
 # 4. demo honest empty: user's screenshot case ("music" -> 10x0% BEFORE fix)
 st = make_store(E.HeuristicEmbedder())

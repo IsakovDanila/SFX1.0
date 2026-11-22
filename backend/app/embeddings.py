@@ -315,6 +315,22 @@ class CLAPEmbedder:
         mid = (lo + hi) / 2
         return float(1 / (1 + np.exp(-steep * (cos - mid))))
 
+    # Аудио-аудио калибровка. Два разных звука одного класса дают косинус
+    # 0.4-0.7 (это не ошибка: CLAP-вектор — усреднённое описание, а не хеш).
+    # Поэтому шкала мягче, чем для текст->аудио.
+    # Настройка: SFX_CLAP_CALIB_AUDIO=lo,hi
+    def audio_audio_prob(self, cos: float) -> float:
+        lo, hi = 0.30, 0.65
+        env = (os.getenv("SFX_CLAP_CALIB_AUDIO") or "").strip()
+        if "," in env:
+            try:
+                lo, hi = (float(x) for x in env.split(",", 1))
+            except ValueError:
+                pass
+        steep = 12.0 / max(hi - lo, 1e-6)
+        mid = (lo + hi) / 2
+        return float(1 / (1 + np.exp(-steep * (cos - mid))))
+
 
 def get_embedder():
     """Factory без блокирующей загрузки.

@@ -235,28 +235,37 @@ def search(req: SearchRequest):
     return store.search_text(req.query, k)
 
 
-def _search_by_upload(content: bytes, suffix: str, top_k: int) -> list[dict]:
+def _vector_from_upload(content: bytes, suffix: str) -> np.ndarray:
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
         tmp_path = tmp.name
     try:
         feats = af.analyze(tmp_path)
         if isinstance(store.embedder, E.CLAPEmbedder):
-            vec = store.embedder.audio_vector_file(tmp_path)
-        else:
-            vec = store.embedder.audio_vector(feats)
-        return store.search_vector(np.asarray(vec), top_k)
+            return np.asarray(store.embedder.audio_vector_file(tmp_path))
+        return np.asarray(store.embedder.audio_vector(feats))
     finally:
         os.unlink(tmp_path)
 
 
+def _search_by_upload(content: bytes, suffix: str, top_k: int,
+                      query: str = "") -> list[dict] | dict:
+    vec = _vector_from_upload(content, suffix)
+    if query.strip():
+        # референс + описание: описание работает как уточнение к похожести
+        return store.search_audio_text(vec, query, top_k)
+    return store.search_vector(vec, top_k)
+
+
 @app.post("/api/search/audio")
-async def search_audio(file: UploadFile = File(...), n_results: int = 10):
+async def search_audio(file: UploadFile = File(...), n_results: int = 10,
+                       query: str = ""):
     if not store.items:
         raise HTTPException(400, "Library is empty — scan a folder first")
     suffix = os.path.splitext(file.filename or "ref.wav")[1] or ".wav"
-    results = _search_by_upload(await file.read(), suffix, max(1, min(n_results, 50)))
-    return {"results": results}
+    out = _search_by_upload(await file.read(), suffix,
+                            max(1, min(n_results, 50)), query)
+    return out if isinstance(out, dict) else {"results": out}
 
 
 @app.post("/api/search-by-audio")

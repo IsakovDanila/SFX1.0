@@ -90,7 +90,7 @@ export default function ImportModal({ isOpen, onClose }: ImportModalProps) {
       // tags.csv): их найдёт только поиск по звуку или ручная разметка.
       setScanMsg(blind > 0
         ? `${welcome} ⚠ У ${blind} из ${remote.length} файлов нет ни тегов, ни осмысленного имени — `
-          + 'они не найдутся по словам. Добавьте tags.csv в папку или разметьте их во вкладке «Разметка».'
+          + 'по русским словам их не найти. Добавьте tags.csv в папку или переименуйте файлы.'
         : welcome);
     } catch (e) {
       setScanMsg(`✕ ${e instanceof Error ? e.message : 'бэкенд недоступен'}`);
