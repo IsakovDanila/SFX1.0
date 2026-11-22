@@ -77,6 +77,8 @@ class JsonStore:
         self._tagger: AT.ZeroShotTagger | None = None  # lazy, CLAP mode only
         self.items: list[dict] = []
         self._by_id: dict[str, dict] = {}
+        self.index_reset_reason = ""   # почему индекс отброшен (показываем в UI)
+        self.reindex_error = ""        # последняя ошибка фоновой переиндексации
         if os.path.exists(self.path):
             self.load()
 
@@ -98,15 +100,23 @@ class JsonStore:
         if not folders:
             return
         root = os.path.commonpath(folders) if len(folders) > 1 else folders[0]
+        # старые записи несовместимы с новым эмбеддером — выкидываем сразу,
+        # иначе поиск упадёт на cosine(13-d, 512-d) до конца переиндексации
+        self.items = []
+        self._by_id = {}
         print(f"[store] переключаюсь на {embedder.name}, переиндексация: {root}")
         threading.Thread(target=self._reindex_safe, args=(root,), daemon=True).start()
 
     def _reindex_safe(self, folder: str) -> None:
         try:
+            self.reindex_error = ""
             self.scan_folder(folder)
             print(f"[store] переиндексация завершена: {len(self.items)} файлов")
         except Exception as e:  # noqa: BLE001
-            print(f"[store] переиндексация не удалась: {e}")
+            # Раньше это молча уходило в print, а пользователь видел только
+            # «поиск не работает». Теперь причина уходит в /api/health.
+            self.reindex_error = f"{type(e).__name__}: {e}"
+            print(f"[store] переиндексация не удалась: {self.reindex_error}")
 
     # ---------- persistence ----------
     def load(self) -> None:
@@ -119,13 +129,37 @@ class JsonStore:
             self._by_id = {}
             return
         items = data.get("items", [])
-        # self-healing: drop entries whose files no longer exist on disk
-        kept = [it for it in items if os.path.exists(it.get("path", ""))]
-        dropped = len(items) - len(kept)
-        if dropped:
-            print(f"[store] pruned {dropped} missing files from index")
+        want_name = getattr(self.embedder, "name", "")
+        want_dim = int(getattr(self.embedder, "dim", 0) or 0)
+
+        def _usable(it: dict) -> bool:
+            if not os.path.exists(it.get("path", "")):
+                return False
+            # Индекс мог быть собран другим эмбеддером (эвристика 13-d против
+            # CLAP 512-d). Раньше такие записи принимались как валидные, и
+            # cosine() падал с ValueError уже во время поиска -> HTTP 500.
+            if want_name and it.get("embedder") not in (None, want_name):
+                return False
+            if want_dim and len(it.get("vector") or []) != want_dim:
+                return False
+            return True
+
+        kept = [it for it in items if _usable(it)]
+        dropped = [it for it in items if not _usable(it)]
+        missing = sum(1 for it in dropped
+                      if not os.path.exists(it.get("path", "")))
+        incompatible = len(dropped) - missing
+        if missing:
+            print(f"[store] pruned {missing} missing files from index")
+        if incompatible:
+            print(f"[store] отброшено {incompatible} записей индекса: "
+                  f"собраны другим эмбеддером (нужен {want_name or '?'}, "
+                  f"{want_dim or '?'}-мерный) — библиотеку надо просканировать заново")
         self.items = kept
         self._by_id = {it["id"]: it for it in self.items}
+        self.index_reset_reason = (
+            f"Индекс собран другим режимом ({incompatible} записей). "
+            f"Просканируйте папку заново." if incompatible else "")
         if dropped:
             self.save()
 
@@ -394,7 +428,8 @@ class JsonStore:
         }
 
     def _confidence_clap(self, cos: float, fused: float,
-                        kw: float = 0.0, margin: float = 1.0) -> int:
+                        kw: float = 0.0, margin: float = 1.0,
+                        kw_available: bool = True) -> int:
         """Уверенность для CLAP-поиска.
 
         Три сигнала, а не один абсолютный косинус:
@@ -413,67 +448,75 @@ class JsonStore:
         margin = min(1.0, max(0.0, margin))
         kw = min(1.0, max(0.0, kw))
         fused = min(1.0, max(0.0, fused))
-        val = (0.40 * margin + 0.30 * kw + 0.20 * prob + 0.10 * fused)
-        # Точное попадание в категорию (kw=0.85 приходит из keyword_score,
-        # когда запрос перевёлся в cat_key из tags.csv) — это факт, а не
-        # догадка. CLAP на шумных записях даёт низкий косинус, и без пола
-        # верный файл получал 70% рядом с «ничего не похоже».
+        # Абсолютный косинус CLAP на шумных записях ESC-50 низкий (0.26) даже
+        # у верного файла. Если выбор подтверждён словами (kw >= 0.85 —
+        # точное попадание в категорию), косинус перестаёт быть главным
+        # свидетелем: снижаем его вес и отдаём марджину.
         if kw >= 0.85:
-            val = max(val, 0.85)
+            w_margin, w_kw, w_prob, w_fused = 0.45, 0.35, 0.10, 0.10
+        else:
+            w_margin, w_kw, w_prob, w_fused = 0.40, 0.30, 0.20, 0.10
+        if not kw_available:
+            # Ни один файл не совпал по словам — значит лексический сигнал
+            # здесь не несёт информации (например, в библиотеке нет тегов).
+            # Раньше его вес (0.30) просто вычитался у ВСЕХ результатов:
+            # у верного файла был потолок ~70% независимо от похожести.
+            # Перераспределяем вес на оставшиеся сигналы.
+            total = w_margin + w_prob + w_fused
+            w_margin, w_prob, w_fused = (w_margin / total, w_prob / total,
+                                         w_fused / total)
+            w_kw = 0.0
+        val = (w_margin * margin + w_kw * kw
+               + w_prob * prob + w_fused * fused)
+        # Пол 85% снят. Он ставил 85% ЛЮБОМУ файлу с совпавшей категорией —
+        # даже при косинусе 0.20, то есть всем 40 файлам класса «dog» на
+        # запрос «dog barking». Совпадение категории остаётся сильным
+        # сигналом через kw (вес 0.30), но не перебивает саму похожесть.
+        # Вместо пола — мягкая поправка: при явном совпадении категории
+        # процент не может быть ниже 60 (а не 85).
+        if kw >= 0.85:
+            val = max(val, 0.60)
         return int(np.clip(round(val * 100), 5, 99))
 
     @staticmethod
-    def _margins(coss: list[float], tie_eps: float = 0.005) -> list[float]:
-        """Отрыв каждого результата от следующего в порядке убывания.
+    def _margins(coss: list[float]) -> list[float]:
+        """Насколько результат выделяется на фоне остальных (0..1).
 
-        Нормируем на разброс всего списка: 1.0 — явный лидер,
-        0.0 — все косинусы почти одинаковые (нет уверенности).
+        Формула непрерывная, без порогов и группировки:
+            margin_i = (cos_i - mean) / (max - mean) * flatness
 
-        Ничья (совпадение косинусов в пределах tie_eps) НЕ штрафуется:
-        для запроса «bells» оба файла church_bells дают одинаковый косинус,
-        и раньше оба получали margin=0, хотя оба верные. Топ-1 такой группы
-        получает полный вес, остальные — чуть меньший, чтобы список не
-        выглядел «всё главное».
+        Почему так. В прошлой версии margin считался по отрыву от
+        следующего результата с бинарным порогом «ничья 0.005». Из-за
+        этого процент скакал вдвое от шума в третьем знаке косинуса:
+            отрыв 0.004 -> 85% (попали в «ничью»)
+            отрыв 0.006 -> 29% (уже не ничья)
+        Теперь связь с косинусом монотонная и гладкая: два файла с почти
+        равными косинусами получают почти равный процент, а лидер,
+        оторвавшийся от остальных, — высокий.
+
+        flatness = (max - min) / 0.15 гасит margin, когда весь список
+        идёт вплотную (мусорный запрос): без него первый результат любого
+        списка получал бы 1.0.
         """
         if not coss:
             return []
-        order = sorted(range(len(coss)), key=lambda i: -coss[i])
-        spread = max(coss) - min(coss)
-        out = [0.0] * len(coss)
-
-        # группируем подряд идущие почти равные косинусы
-        groups: list[list[int]] = []
-        for i in order:
-            if groups and abs(coss[groups[-1][0]] - coss[i]) <= tie_eps:
-                groups[-1].append(i)
-            else:
-                groups.append([i])
-
-        for rank, i in enumerate(order):
-            if rank + 1 < len(order):
-                nxt = coss[order[rank + 1]]
-                gap = coss[i] - nxt
-            else:
-                gap = coss[i] - min(coss)
-            # Нормируем и на разброс, и на АБСОЛЮТНЫЙ отрыв: при крошечном
-            # разбросе (все косинусы 0.24, 0.239, ...) деление на spread
-            # превращало шум в «явного лидера». 0.03 косинуса — минимум,
-            # чтобы отрыв считался осмысленным.
-            if spread <= 1e-6:
-                out[i] = 0.0
-            else:
-                out[i] = min(1.0, 2.0 * gap / spread, gap / 0.03)
-
-        # Бонус лидеру только если он ОТДЕЛЁН от остальных: иначе при
-        # мусорном запросе (все косинусы равны, одна группа) получилась бы
-        # ложная уверенность. Проверяем отрыв от следующей группы.
-        if len(groups) > 1:
-            lead, rest = groups[0], groups[1]
-            drop = coss[lead[0]] - coss[rest[0]]
-            need = 0.15 * spread if spread > 1e-6 else 1.0
-            if drop >= need:
-                for pos, i in enumerate(lead):
-                    out[i] = max(out[i], 0.85 if pos == 0 else 0.75)
+        lo, hi = min(coss), max(coss)
+        mean = float(np.mean(coss))
+        spread = hi - lo
+        # Плавное гашение по АБСОЛЮТНОМУ разбросу, без обрыва:
+        #   разброс 0.01 (мусорный запрос) -> 0.15, вес margin почти пропадает;
+        #   разброс 0.05 (настоящий лидер) -> 0.77;
+        #   разброс 0.15 и выше          -> 1.0.
+        # Обрыв на пороге (как было с 0.15) душил лидера в списке из 4 файлов,
+        # а слишком мягкая шкала (0.05) давала мусорному запросу 43%.
+        flatness = min(1.0, (spread / 0.05) ** 1.5)
+        denom = hi - mean
+        if denom <= 1e-9:
+            return [0.0] * len(coss)
+        out = []
+        for c in coss:
+            raw = (c - mean) / denom          # 1.0 у лидера, <0 у хвоста
+            out.append(float(np.clip(raw, 0.0, 1.0) * flatness))
         return out
 
     def _hit(self, it: dict, score: float, confidence: int) -> dict:
@@ -522,8 +565,9 @@ class JsonStore:
             fused.sort(key=lambda x: -x[0])
             best = fused[0][0] if fused else 1.0
             margins = self._margins(clap_scores)
+            kw_available = any(s > 0 for s in kw_scores)
             confs = [self._confidence_clap(clap_scores[i], rrf / best,
-                                           kw_scores[i], margins[i])
+                                           kw_scores[i], margins[i], kw_available)
                      for rrf, i in fused[:top_k]]
             # проценты не должны расти вниз по списку: иначе #3 с точным
             # тегом выглядит «лучше» #2, хотя ранжирование поставило его ниже
@@ -569,15 +613,27 @@ class JsonStore:
             if it["id"] == exclude_id:
                 continue
             c = E.cosine(vec, np.array(it["vector"]))
-            # калибровка как у текст->аудио: линейная формула 50*(c+1)-1
-            # давала ~45% даже верному файлу (косинус аудио-аудио ниже)
+            scored.append((c, it))
+        scored.sort(key=lambda x: -x[0])
+        top = scored[:top_k]
+        if not top:
+            return []
+        # Проценты для референса считаем так же, как для текста: по ОТРЫВУ
+        # от остальных, а не по абсолютному косинусу.
+        # Раньше был только audio_audio_prob: при косинусе ниже 0.45 она
+        # даёт 5-30%, то есть верный файл выглядел «не найденным». У шумных
+        # записей ESC-50 косинус аудио-аудио редко выше 0.45, поэтому поиск
+        # по референсу выглядел сломанным, хотя ранжирование было верным.
+        margins = self._margins([c for c, _ in top])
+        confs = []
+        for (c, it), margin in zip(top, margins):
             prob = (self.embedder.audio_audio_prob(c)
                     if hasattr(self.embedder, "audio_audio_prob")
                     else (c + 1) / 2)
-            conf = int(np.clip(round(prob * 100), 5, 99))
-            scored.append((c, self._hit(it, c, conf)))
-        scored.sort(key=lambda x: -x[0])
-        return [p for _, p in scored[:top_k]]
+            val = 0.45 * margin + 0.55 * prob
+            confs.append(int(np.clip(round(val * 100), 5, 99)))
+        confs = [int(c) for c in np.minimum.accumulate(confs)]
+        return [self._hit(it, c / 100.0, conf) for (_, it), conf in zip(top, confs)]
 
     def search_audio_text(self, vec: np.ndarray, query: str = "",
                           top_k: int = 10, exclude_id: str = "") -> dict:

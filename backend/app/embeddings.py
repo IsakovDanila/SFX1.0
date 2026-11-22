@@ -305,8 +305,15 @@ class CLAPEmbedder:
         # get_audio_embedding_from_data принимает уже готовый waveform в 48 кГц,
         # поэтому обрезка не «съедается» повторной загрузкой внутри пакета.
         y = self._load_for_clap(path)
+        if y.size == 0:
+            raise ValueError(f"нет звука после обрезки тишины: {path}")
+        # ВАЖНО: список, а не массив. laion_clap/hook.py делает
+        # `for audio_waveform in x`, то есть ждёт батч дорожек.
+        # Для 1-D массива он итерирует ПО СЭМПЛАМ, и каждый сэмпл
+        # (numpy.float32, 0 измерений) падает в torch.from_numpy ->
+        # "TypeError: object of type 'numpy.float32' has no len()".
         emb = self.model.get_audio_embedding_from_data(
-            np.asarray(y, dtype=np.float32), use_tensor=False)
+            [np.asarray(y, dtype=np.float32)], use_tensor=False)
         return self._norm(emb[0])
 
     # Несколько формулировок на запрос: усреднение векторов даёт заметно
