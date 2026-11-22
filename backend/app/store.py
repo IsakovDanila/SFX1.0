@@ -501,6 +501,83 @@ class JsonStore:
         scored.sort(key=lambda x: -x[0])
         return [p for _, p in scored[:top_k]]
 
+    def search_audio_text(self, vec: np.ndarray, query: str = "",
+                          top_k: int = 10, exclude_id: str = "") -> dict:
+        """Референс + описание одновременно.
+
+        Три ранжирования сливаются через RRF с весами:
+          - аудио-косинус к загруженному файлу (главный сигнал),
+          - CLAP текст->аудио (семантика описания, только в CLAP-режиме),
+          - ключевые слова/RU-теги (работает без CLAP и на русском).
+        Описание работает как уточнение: «похоже на этот взрыв, но деревянный».
+        """
+        t0 = time.time()
+        q = (query or "").strip()
+        if not q:
+            res = self.search_vector(vec, top_k, exclude_id=exclude_id)
+            return {"mode": "audio-only", "low_confidence": False,
+                    "elapsed_ms": int((time.time() - t0) * 1000),
+                    "results": res}
+
+        w_audio = float(os.getenv("SFX_W_AUDIO", "1.0"))
+        w_clap = float(os.getenv("SFX_W_CLAPTEXT", "0.8"))
+        w_kw = float(os.getenv("SFX_W_KEYWORDS", "0.5"))
+
+        n = len(self.items)
+        a_scores = [(-1.0 if it["id"] == exclude_id
+                     else E.cosine(vec, np.array(it["vector"])))
+                    for it in self.items]
+        kw_scores = E.HeuristicEmbedder().text_scores(q, self.items)
+
+        clap_scores: list[float] | None = None
+        if isinstance(self.embedder, E.CLAPEmbedder):
+            qv = self.embedder.text_vector(q)
+            clap_scores = [E.cosine(qv, np.array(it["vector"])) for it in self.items]
+
+        rankings = [(a_scores, w_audio), (kw_scores, w_kw)]
+        if clap_scores is not None:
+            rankings.append((clap_scores, w_clap))
+
+        k_rrf = 60
+        fused = [0.0] * n
+        for scores, w in rankings:
+            order = sorted(range(n), key=lambda i: -scores[i])
+            for r, i in enumerate(order):
+                fused[i] += w / (k_rrf + r)
+
+        def _prob(i: int) -> int:
+            pa = (self.embedder.audio_audio_prob(a_scores[i])
+                  if hasattr(self.embedder, "audio_audio_prob")
+                  else (a_scores[i] + 1) / 2)
+            num, den = w_audio * pa, w_audio
+            if clap_scores is not None:
+                pt = self.embedder.text_audio_prob(clap_scores[i])
+                num += w_clap * pt
+                den += w_clap
+            if kw_scores[i] > 0:
+                pk = _confidence_from_keyword(kw_scores[i]) / 100.0
+                num += w_kw * pk
+                den += w_kw
+            return int(np.clip(round(num / max(den, 1e-9) * 100), 5, 99))
+
+        order = sorted(range(n), key=lambda i: -fused[i])
+        hits = []
+        for i in order[:top_k]:
+            conf = _prob(i)
+            hits.append(self._hit(self.items[i], conf / 100.0, conf))
+
+        best_cos = max(a_scores) if a_scores else 0.0
+        best_kw = max(kw_scores) if kw_scores else 0.0
+        min_cos = float(os.getenv("SFX_CLAP_MIN_COS", "0.18"))
+        weak = best_cos < max(min_cos, 0.12) and best_kw <= 0
+        mode = "audio+clap+keywords" if clap_scores is not None else "audio+keywords"
+        if weak and os.getenv("SFX_CLAP_HONEST_EMPTY", "1") == "1":
+            return {"mode": mode, "low_confidence": True, "results": [],
+                    "elapsed_ms": int((time.time() - t0) * 1000),
+                    "hint": "Ничего похожего ни по звуку, ни по описанию."}
+        return {"mode": mode, "low_confidence": bool(weak), "results": hits,
+                "elapsed_ms": int((time.time() - t0) * 1000)}
+
     def similar(self, item_id: str, top_k: int = 10) -> list[dict]:
         it = self.get(item_id)
         if not it:

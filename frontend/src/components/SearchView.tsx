@@ -20,12 +20,17 @@ export default function SearchView() {
     setIsSearching(true);
     setSearchError('');
     try {
+      // Референс + описание складываются: файл задаёт «похожесть»,
+      // текст уточняет её. Если заполнено только одно — работает одно.
       const res = referenceFile
-        ? await api.searchByAudio(referenceFile, 10)
+        ? await api.searchByAudio(referenceFile, 10, text)
         : await api.searchByText(text, 10);
       setSearchResults(res.map(r => ({
         file: toAudioFile(r.file),
-        score: Math.max(0, Math.min(1, r.score)),
+        // Показываем калиброванный confidence с бэкенда, если он есть:
+        // сырой score (косинус/RRF) для пользователя не шкала «похожести».
+        score: Math.max(0, Math.min(1,
+          typeof r.confidence === 'number' ? r.confidence / 100 : r.score)),
       })));
       // Проставляем реальные URL для плеера
       const st = useStore.getState();
@@ -66,6 +71,7 @@ export default function SearchView() {
             <input type="file" accept=".wav,.mp3,.ogg,.flac" onChange={(e) => e.target.files?.[0] && setReferenceFile(e.target.files[0])} className="hidden" />
           </label>
           {referenceFile && (<div className="flex items-center gap-2 px-3 py-1.5 bg-violet-900/50 border border-violet-600 rounded-lg text-xs text-violet-300"><Mic size={12} /><span className="max-w-[200px] truncate">{referenceFile.name}</span><button onClick={() => setReferenceFile(null)}><X size={12} /></button></div>)}
+          {referenceFile && searchQuery.trim() && (<span className="text-[11px] text-gray-500">референс + описание: найдёт похожее и сузит по тексту</span>)}
         </div>
       </div>
 
