@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store/useStore';
-import { mockAudioFiles } from './data/mockData';
 import { api, toAudioFile } from './api/client';
 import Header from './components/Header';
 import ClapStatusBanner from './components/ClapStatusBanner';
@@ -15,19 +14,18 @@ export default function App() {
     let cancelled = false;
     // Пробуем загрузить реальные файлы с бэкенда, иначе — моки
     (async () => {
+      // Показываем ТОЛЬКО реальный индекс: если бэкенд пуст или недоступен —
+      // список пустой. Моки отключены, иначе пользователь видел бы чужие
+      // файлы, которых нет на диске (и «нашёл» бы их поиском).
       try {
         const remote = await api.getAllFiles();
         if (cancelled) return;
-        if (remote.length > 0) {
-          const mapped = remote.map(toAudioFile);
-          const st = useStore.getState();
-          mapped.forEach(f => st.setAudioUrl(f.id, api.getAudioUrl(f.id)));
-          st.setFiles(mapped);
-        } else {
-          setFiles(mockAudioFiles);
-        }
+        const mapped = remote.map(toAudioFile);
+        const st = useStore.getState();
+        mapped.forEach(f => st.setAudioUrl(f.id, api.getAudioUrl(f.id)));
+        st.setFiles(mapped);
       } catch {
-        if (!cancelled) setFiles(mockAudioFiles);
+        if (!cancelled) setFiles([]);
       }
     })();
     // Проверяем доступность бэкенда и его режим
