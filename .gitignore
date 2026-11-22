@@ -12,6 +12,10 @@ dist/
 # Данные индекса (генерируются сканированием)
 data/index.json
 
+# Секреты и локальные настройки
+.env
+.env.local
+
 # OS
 .DS_Store
 Thumbs.db

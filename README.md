@@ -194,6 +194,24 @@ SFX_CLAP_CKPT=~/.cache/sfx-clap/630k-audioset-best.pt SFX_CLAP_OFFLINE=1 ./start
 `start-backend-clap.sh` подхватывает веса из `~/.cache/sfx-clap`
 автоматически, если они там есть.
 
+### Настройки в файле вместо терминала
+
+Скопируйте `.env.example` в `.env` и заполните один раз:
+
+```bash
+cp .env.example .env        # Windows: copy .env.example .env
+```
+
+```ini
+HF_TOKEN=hf_ваш_токен      # ускоряет скачивание весов CLAP
+SFX_USE_CLAP=1
+SFX_CLAP_MIN_COS=0.18
+```
+
+Бэкенд читает `.env` при старте (сам, без `python-dotenv`). Файл **добавлен в
+`.gitignore`** и в репозиторий не попадает; приоритет у переменных ОС — если
+задать `HF_TOKEN` в системе, она перебьёт `.env`. Шаблон — `.env.example`.
+
 Переменные окружения:
 
 | Переменная | Смысл |
