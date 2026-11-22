@@ -36,14 +36,21 @@ export default function SearchView() {
       const st = useStore.getState();
       res.forEach(r => st.setAudioUrl(r.file.id, api.getAudioUrl(r.file.id)));
     } catch (e) {
-      // Никаких подставных результатов: если бэкенд недоступен —
-      // показываем пусто и объясняем причину.
+      // Никаких подставных результатов: показываем пусто и объясняем причину.
+      // Важно не путать «сервер не запущен» с «сервер ответил ошибкой»:
+      // иначе 500 от бэкенда выглядит как «бэкенд выключен» и ищут не там.
+      const msg = e instanceof Error ? e.message : String(e);
       setSearchResults([]);
-      setSearchError(
-        e instanceof Error && e.message.includes('Library is empty')
-          ? 'Индекс пуст — сначала просканируйте папку в разделе «Каталог».'
-          : 'Бэкенд недоступен. Он запущен? Проверьте http://localhost:8000/api/health',
-      );
+      if (msg.includes('Library is empty')) {
+        setSearchError('Индекс пуст — сначала просканируйте папку в разделе «Каталог».');
+      } else if (msg.includes('сервер ответил') || msg.includes('HTTP')) {
+        // сеть дошла до сервера — он жив, но упал на обработке запроса
+        setSearchError(`${msg}. Подробности — в консоли бэкенда.`);
+      } else {
+        setSearchError(
+          'Бэкенд недоступен. Он запущен? Проверьте http://localhost:8000/api/health',
+        );
+      }
     } finally {
       setIsSearching(false);
       setHasSearched(true);

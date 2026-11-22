@@ -486,7 +486,9 @@ class JsonStore:
                      for rrf, i in fused[:top_k]]
             # проценты не должны расти вниз по списку: иначе #3 с точным
             # тегом выглядит «лучше» #2, хотя ранжирование поставило его ниже
-            confs = list(np.minimum.accumulate(confs))
+            # int(...) обязателен: np.minimum.accumulate возвращает np.int64,
+            # а такой тип не сериализуется в JSON -> HTTP 500 на каждом запросе
+            confs = [int(c) for c in np.minimum.accumulate(confs)]
             results = [self._hit(self.items[i], c / 100.0, c)
                        for c, (rrf, i) in zip(confs, fused[:top_k])]
             best_cos = max(clap_scores) if clap_scores else 0.0
