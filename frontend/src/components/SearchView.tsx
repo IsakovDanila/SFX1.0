@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Search, Upload, X, Mic, Loader2, ArrowUpDown, SearchX } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { mockAudioFiles } from '../data/mockData';
 import { api, toAudioFile } from '../api/client';
 import AudioPlayer from './AudioPlayer';
 
@@ -12,26 +11,14 @@ export default function SearchView() {
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [sortBy, setSortBy] = useState<'score' | 'duration' | 'name'>('score');
   const [hasSearched, setHasSearched] = useState(false);
-
-  // Fallback на моки, если бэкенд недоступен
-  const fallbackSearch = (q: string) => {
-    const results = mockAudioFiles.map(file => {
-      let score = 0; const query = q.toLowerCase();
-      if (file.description.toLowerCase().includes(query)) score += 0.8;
-      if (file.tags.some(t => t.toLowerCase().includes(query))) score += 0.6;
-      if (file.category.toLowerCase().includes(query)) score += 0.4;
-      if (file.filename.toLowerCase().includes(query)) score += 0.3;
-      score += Math.random() * 0.2; score = Math.min(score, 1);
-      return { file, score };
-    }).filter(r => r.score > 0.2).sort((a, b) => b.score - a.score);
-    setSearchResults(results);
-  };
+  const [searchError, setSearchError] = useState('');
 
   const handleSearch = async (q?: string) => {
     const text = (q ?? searchQuery).trim();
     if (!text && !referenceFile) return;
     if (q !== undefined) setSearchQuery(q);
     setIsSearching(true);
+    setSearchError('');
     try {
       const res = referenceFile
         ? await api.searchByAudio(referenceFile, 10)
@@ -43,8 +30,15 @@ export default function SearchView() {
       // Проставляем реальные URL для плеера
       const st = useStore.getState();
       res.forEach(r => st.setAudioUrl(r.file.id, api.getAudioUrl(r.file.id)));
-    } catch {
-      fallbackSearch(text);
+    } catch (e) {
+      // Никаких подставных результатов: если бэкенд недоступен —
+      // показываем пусто и объясняем причину.
+      setSearchResults([]);
+      setSearchError(
+        e instanceof Error && e.message.includes('Library is empty')
+          ? 'Индекс пуст — сначала просканируйте папку в разделе «Каталог».'
+          : 'Бэкенд недоступен. Он запущен? Проверьте http://localhost:8000/api/health',
+      );
     } finally {
       setIsSearching(false);
       setHasSearched(true);
@@ -101,7 +95,7 @@ export default function SearchView() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2"><p className="text-white text-sm font-medium truncate">{r.file.filename}</p><span className="text-[10px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">{r.file.category}</span></div>
                       <p className="text-gray-400 text-xs mt-1">{r.file.description}</p>
-                      <div className="flex items-center gap-3 mt-2"><div className="flex gap-1">{r.file.tags.slice(0, 4).map(t => (<span key={t} className="px-1.5 py-0.5 bg-violet-900/40 text-violet-300 rounded text-[10px]">{t}</span>))}</div><span className="text-gray-500 text-[10px]">{r.file.duration.toFixed(1)}s</span></div>
+                      <div className="flex items-center gap-3 mt-2"><span className="text-gray-500 text-[10px]">{r.file.duration.toFixed(1)}s</span></div>
                     </div>
                     <div className="flex-shrink-0 text-right"><div className="text-lg font-bold text-violet-400">{(r.score * 100).toFixed(0)}%</div><div className="text-[10px] text-gray-500">match</div></div>
                   </div>
@@ -116,9 +110,17 @@ export default function SearchView() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-800 border border-gray-700 flex items-center justify-center"><SearchX size={28} className="text-gray-500" /></div>
-            <h3 className="text-white text-lg font-medium mb-2">Ничего не найдено</h3>
-            <p className="text-gray-400 text-sm mb-2">Попробуйте переформулировать запрос, добавить теги во вкладке «Разметка» или найти по референсному аудио.</p>
-            <p className="text-gray-500 text-xs">В keywords-режиме поиск идёт по именам и тегам — включите CLAP-режим бэкенда для семантики.</p>
+            <h3 className="text-white text-lg font-medium mb-2">
+              {searchError ? 'Поиск недоступен' : 'Ничего не найдено'}
+            </h3>
+            {searchError ? (
+              <p className="text-amber-300 text-sm mb-2">{searchError}</p>
+            ) : (
+              <>
+                <p className="text-gray-400 text-sm mb-2">Попробуйте переформулировать запрос или найти по референсному аудио.</p>
+                <p className="text-gray-500 text-xs">CLAP понимает английский; русские запросы идут через словарь синонимов.</p>
+              </>
+            )}
           </div>
         </div>
       )}

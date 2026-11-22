@@ -5,7 +5,7 @@
   "n_files": 90,
   "recall@5": 1.0,
   "recall@10": 1.0,
-  "avg_ms": 3.3,
+  "avg_ms": 4.4,
   "gate_recall@10>=0.5": true,
   "details": [
     {

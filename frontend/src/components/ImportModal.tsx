@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import { Upload, X, FileAudio, FolderOpen, Loader2, Check, Server } from 'lucide-react';
 import { createAudioFileFromImport } from '../utils/audioAnalysis';
 import { useStore, AudioFile } from '../store/useStore';
-import { categories } from '../data/mockData';
 import { api, toAudioFile } from '../api/client';
 
 interface ImportModalProps {
@@ -23,6 +22,10 @@ export default function ImportModal({ isOpen, onClose }: ImportModalProps) {
   // NOTE: хуки обязаны вызываться до раннего return (иначе React роняет
   // компонент при закрытии модалки: "Rendered fewer hooks than expected").
   const { files, setFiles, setAudioUrl } = useStore();
+  // Категории — из реального каталога, а не из выдуманного списка моков
+  const categories = Array.from(
+    new Set(files.map(f => f.category || 'Без категории')),
+  ).sort();
 
   if (!isOpen) return null;
 
@@ -140,7 +143,7 @@ export default function ImportModal({ isOpen, onClose }: ImportModalProps) {
           <div>
             <label className="text-gray-300 text-xs font-medium mb-2 block">Категория для новых файлов:</label>
             <div className="flex gap-2 flex-wrap">
-              {categories.filter(c => c !== 'Все').map(cat => (
+              {categories.filter((c: string) => c !== 'Все').map((cat: string) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}

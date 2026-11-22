@@ -242,13 +242,61 @@ class CLAPEmbedder:
         v = np.array(arr, dtype=float).ravel()
         return v / (np.linalg.norm(v) + 1e-12)
 
+    # CLAP нарезает вход на окна по 10 с и центрирует вокруг громкой части.
+    # Для коротких SFX (0.2–2 с) остальное — тишина, и вектор «размазывается».
+    # Поэтому режем с тишины по краям и ограничиваем длину.
+    CLAP_SR = 48000              # родная частота модели, ресемплим сами
+    MAX_SECONDS = 10.0           # окно CLAP
+    SILENCE_DB = -45.0           # порог тишины для обрезки краёв
+
+    def _trim_silence(self, y: np.ndarray) -> np.ndarray:
+        """Срезать тишину в начале/конце (окнами по 20 мс)."""
+        if y.size == 0:
+            return y
+        win = max(1, int(self.CLAP_SR * 0.02))
+        n = y.size // win
+        if n < 2:
+            return y
+        frames = y[: n * win].reshape(n, win)
+        rms = np.sqrt((frames ** 2).mean(axis=1) + 1e-12)
+        peak = float(rms.max()) + 1e-12
+        thr = peak * (10 ** (self.SILENCE_DB / 20))
+        loud = np.where(rms > thr)[0]
+        if loud.size == 0:
+            return y
+        start = loud[0] * win
+        end = min(y.size, (loud[-1] + 1) * win)
+        # небольшой запас по 50 мс, чтобы не срезать атаку
+        pad = int(self.CLAP_SR * 0.05)
+        return y[max(0, start - pad): min(y.size, end + pad)]
+
+    def _load_for_clap(self, path: str) -> np.ndarray:
+        import librosa
+        y, _ = librosa.load(path, sr=self.CLAP_SR, mono=True,
+                            duration=self.MAX_SECONDS)
+        return self._trim_silence(y)
+
     def audio_vector_file(self, path: str) -> np.ndarray:
-        emb = self.model.get_audio_embedding_from_filelist([path], use_tensor=False)
+        # get_audio_embedding_from_data принимает уже готовый waveform в 48 кГц,
+        # поэтому обрезка не «съедается» повторной загрузкой внутри пакета.
+        y = self._load_for_clap(path)
+        emb = self.model.get_audio_embedding_from_data(
+            np.asarray(y, dtype=np.float32), use_tensor=False)
         return self._norm(emb[0])
 
+    # Несколько формулировок на запрос: усреднение векторов даёт заметно
+    # устойчивее результат, чем одна фраза (работает без дообучения модели).
+    MAX_QUERY_VARIANTS = 3
+
     def text_vector(self, query: str) -> np.ndarray:
-        emb = self.model.get_text_embedding([query], use_tensor=False)
-        return self._norm(emb[0])
+        variants = [v.strip() for v in (query or "").split("|") if v.strip()]
+        variants = variants[: self.MAX_QUERY_VARIANTS] or [query]
+        vecs = []
+        for v in variants:
+            emb = self.model.get_text_embedding([v], use_tensor=False)
+            vecs.append(self._norm(emb[0]))
+        out = np.mean(vecs, axis=0)
+        return out / (np.linalg.norm(out) + 1e-12)
 
     # --- калибровка уверенности ---------------------------------------
     # CLAP отдаёт косинус в узком диапазоне (релевантное ~0.3-0.6), поэтому

@@ -23,6 +23,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from . import env_loader
+
+env_loader.load_env()   # .env с HF_TOKEN и настройками (в git не попадает)
+
 from . import audio_features as af
 from . import clap_runtime
 from . import embeddings as E
