@@ -298,10 +298,13 @@ class JsonStore:
         dt = time.time() - t0
         # «слепые» файлы: о звуке нет ни одного слова (имя вида 1-20133-A-39.wav
         # и нет tags.csv). Честно сообщаем в UI, что их найдёт только звук/теги.
-        blind = [it["filename"] for it in new_items
-                 if not it.get("tags") or (
-                     len(it.get("tags", [])) <= 1
-                     and not labels_ru.is_known(it.get("category", "")))]
+        # В CLAP-режиме вектор есть у каждого файла: по словам он может не
+        # находиться, но по смыслу и референсу находится. Предупреждать не о чем.
+        if isinstance(self.embedder, E.CLAPEmbedder):
+            blind = []
+        else:
+            blind = [it["filename"] for it in new_items
+                     if not it.get("tags") and not it.get("auto_tags")]
         return {"indexed": len(new_items), "added": added, "reused": reused,
                 "skipped_errors": errors, "seconds": round(dt, 2),
                 "without_tags": len(blind),
@@ -488,7 +491,13 @@ class JsonStore:
             if it["id"] == exclude_id:
                 continue
             c = E.cosine(vec, np.array(it["vector"]))
-            scored.append((c, self._hit(it, c, _confidence_from_cosine(c))))
+            # калибровка как у текст->аудио: линейная формула 50*(c+1)-1
+            # давала ~45% даже верному файлу (косинус аудио-аудио ниже)
+            prob = (self.embedder.audio_audio_prob(c)
+                    if hasattr(self.embedder, "audio_audio_prob")
+                    else (c + 1) / 2)
+            conf = int(np.clip(round(prob * 100), 5, 99))
+            scored.append((c, self._hit(it, c, conf)))
         scored.sort(key=lambda x: -x[0])
         return [p for _, p in scored[:top_k]]
 
