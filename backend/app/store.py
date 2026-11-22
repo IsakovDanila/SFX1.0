@@ -699,6 +699,11 @@ class JsonStore:
         for i in order[:top_k]:
             conf = _prob(i)
             hits.append(self._hit(self.items[i], conf / 100.0, conf))
+        # Проценты обязаны идти по убыванию вместе со списком.
+        # Раньше порядок задавал RRF (fused), а числа — отдельная метрика
+        # _prob, поэтому на экране было «#1 54%, #3 97%». Сортируем по
+        # проценту: пользователь видит согласованный список.
+        hits.sort(key=lambda h: -h["confidence"])
 
         best_cos = max(a_scores) if a_scores else 0.0
         best_kw = max(kw_scores) if kw_scores else 0.0
